@@ -1,7 +1,9 @@
 import os
+from ipaddress import ip_address, ip_network
 
-from PySide6.QtCore import Signal, Qt, QPoint
+from PySide6.QtCore import Signal, Qt, QPoint, QTimer
 from PySide6.QtGui import QFont, QPixmap, QPainter, QPen
+from serial.tools import list_ports
 from PySide6.QtWidgets import (
     QWidget,
     QHBoxLayout,
@@ -12,6 +14,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QLineEdit,
     QFrame,
+    QPlainTextEdit,
 )
 
 
@@ -83,7 +86,7 @@ class ModbusView(QWidget):
             QWidget {
                 background: #F5FAEF;
                 color: #111111;
-                font-family: "Times New Roman";
+                font-family: Cambria;
             }
 
             QFrame#header {
@@ -107,8 +110,8 @@ class ModbusView(QWidget):
                 color: white;
                 border: none;
                 border-radius: 7px;
-                font-family: "Times New Roman";
-                font-size: 20px;
+                font-family: Cambria;
+                font-size: 18px;
                 font-weight: bold;
             }
 
@@ -126,7 +129,7 @@ class ModbusView(QWidget):
                 color: white;
                 border: none;
                 border-radius: 7px;
-                font-size: 16px;
+                font-size: 18px;
                 font-weight: bold;
             }
 
@@ -135,7 +138,7 @@ class ModbusView(QWidget):
                 color: #18C53D;
                 border: 2px solid #35D65A;
                 border-radius: 12px;
-                font-size: 14px;
+                font-size: 13px;
                 font-weight: bold;
             }
 
@@ -145,7 +148,7 @@ class ModbusView(QWidget):
                 border: 1px solid #C7D0CD;
                 border-radius: 8px;
                 padding: 5px 10px;
-                font-family: "Times New Roman";
+                font-family: Cambria;
                 font-size: 16px;
             }
 
@@ -166,23 +169,23 @@ class ModbusView(QWidget):
             QLabel#status {
                 color: #00C928;
                 font-weight: bold;
-                font-size: 17px;
+                font-size: 16px;
             }
 
             QLabel#sectionTitle {
-                font-size: 20px;
+                font-size: 16px;
                 font-weight: bold;
                 border-bottom: 3px solid #BFC5C3;
                 padding-bottom: 5px;
             }
 
             QLabel#mainTitle {
-                font-size: 20px;
+                font-size: 16px;
                 font-weight: bold;
             }
 
             QLabel#channelTitle {
-                font-size: 20px;
+                font-size: 16px;
                 font-weight: bold;
             }
 
@@ -202,7 +205,7 @@ class ModbusView(QWidget):
                 border-radius: 9px;
                 text-align: left;
                 padding-left: 18px;
-                font-size: 14px;
+                font-size: 18px;
                 font-weight: bold;
             }
         """)
@@ -256,24 +259,36 @@ class ModbusView(QWidget):
         title_layout.setSpacing(0)
 
         company = QLabel("Nelumbo Automation Pvt Ltd")
-        company.setFixedHeight(25)
+        company.setFixedHeight(22)
+        company.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
         company.setStyleSheet("""
-            color: white;
-            font-family: "Times New Roman";
-            font-size: 17px;
-            font-weight: bold;
+            QLabel {
+                color: white;
+                font-family: Cambria;
+                font-size: 20px;
+                font-weight: bold;
+                padding: 0px;
+                margin: 0px;
+            }
         """)
 
         subtitle = QLabel("Connectivity Utility Suite")
-        subtitle.setFixedHeight(17)
+        subtitle.setFixedHeight(15)
+        subtitle.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         subtitle.setStyleSheet("""
-            color: white;
-            font-family: "Times New Roman";
-            font-size: 11px;
+            QLabel {
+                color: white;
+                font-family: Cambria;
+                font-size: 16px;
+                padding: 0px;
+                margin: 0px;
+            }
         """)
 
+        title_layout.addStretch()
         title_layout.addWidget(company)
         title_layout.addWidget(subtitle)
+        title_layout.addStretch()
 
         header_layout.addLayout(title_layout)
         header_layout.addStretch()
@@ -283,6 +298,7 @@ class ModbusView(QWidget):
         back.clicked.connect(self.back_clicked.emit)
 
         header_layout.addWidget(back)
+
         root.addWidget(header)
 
         # ---------------------------------------------------------
@@ -320,8 +336,8 @@ class ModbusView(QWidget):
                 color: white;
                 border: none;
                 border-radius: 7px;
-                font-family: "Times New Roman";
-                font-size: 20px;
+                font-family: Cambria;
+                font-size: 18px;
                 font-weight: bold;
             }
             QPushButton:hover { background: #14758F; }
@@ -349,10 +365,23 @@ class ModbusView(QWidget):
         slave_id = QLineEdit("1")
         slave_id.setFixedHeight(36)
 
+        # COM Port selection box.
+        com_port_label = QLabel("COM Port")
+        com_port_label.setObjectName("smallLabel")
+
+        com_port = QComboBox()
+        com_port.setFixedHeight(36)
+        com_port.setPlaceholderText("Select COM Port")
+        com_port.setVisible(True)
+        com_port_label.setVisible(True)
+
+        self.com_port_label = com_port_label
+        self.com_port = com_port
+
         valid_ids = QLabel("Valid Slave IDs: 1 to 63")
         valid_ids.setStyleSheet("""
             color: #555555;
-            font-size: 13px;
+            font-size: 16px;
         """)
 
         baud_label = QLabel("RTU Baud Rate")
@@ -360,11 +389,15 @@ class ModbusView(QWidget):
 
         baud = QComboBox()
         baud.addItems([
+            "1200",
+            "2400",
+            "4800",
             "9600",
             "19200",
             "38400",
             "57600",
-            "115200"
+            "115200",
+            "230400"
         ])
         baud.setCurrentText("9600")
         baud.setFixedHeight(36)
@@ -377,8 +410,8 @@ class ModbusView(QWidget):
                 border: 1px solid #C7D0CD;
                 selection-background-color: #DDEBE6;
                 selection-color: #222222;
-                font-family: "Times New Roman";
-                font-size: 15px;
+                font-family: Cambria;
+                font-size: 16px;
                 outline: none;
             }
 
@@ -406,8 +439,8 @@ class ModbusView(QWidget):
                 color: white;
                 border: none;
                 border-radius: 7px;
-                font-family: "Times New Roman";
-                font-size: 16px;
+                font-family: Cambria;
+                font-size: 18px;
                 font-weight: bold;
             }
             QPushButton:hover { background: #14758F; }
@@ -428,6 +461,13 @@ class ModbusView(QWidget):
         refresh.setObjectName("refreshButton")
         refresh.setFixedSize(82, 40)
 
+        refresh.clicked.connect(self.handle_refresh)
+
+        self.com_port_refresh_timer = QTimer(self)
+        self.com_port_refresh_timer.timeout.connect(self.refresh_com_ports)
+        self.com_port_refresh_timer.start(1000)
+        self.refresh_com_ports()
+
         terminal_row.addWidget(terminal_title)
         terminal_row.addStretch()
         terminal_row.addWidget(refresh)
@@ -442,6 +482,35 @@ class ModbusView(QWidget):
         """)
         terminal.setMinimumHeight(70)
 
+        terminal_layout = QVBoxLayout(terminal)
+        terminal_layout.setContentsMargins(6, 6, 6, 6)
+        terminal_layout.setSpacing(0)
+
+        terminal_message = QPlainTextEdit()
+        terminal_message.setReadOnly(True)
+        terminal_message.setFocusPolicy(Qt.NoFocus)
+        terminal_message.setPlainText("Device Terminal Ready")
+        terminal_message.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        terminal_message.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        terminal_message.setStyleSheet("""
+            QPlainTextEdit {
+                background: #F0F5F2;
+                color: #111111;
+                border: none;
+                padding: 2px 4px;
+                font-family: Cambria;
+                font-size: 16px;
+            }
+            QScrollBar:vertical {
+                width: 10px;
+                margin: 0px;
+            }
+        """)
+
+        self.terminal_message = terminal_message
+        self.terminal_messages = ["Device Terminal Ready"]
+        terminal_layout.addWidget(terminal_message)
+
         left_layout.addWidget(connect)
         left_layout.addWidget(status)
         left_layout.addWidget(protocol_label)
@@ -449,6 +518,8 @@ class ModbusView(QWidget):
         left_layout.addWidget(rtu_title)
         left_layout.addWidget(slave_label)
         left_layout.addWidget(slave_id)
+        left_layout.addWidget(com_port_label)
+        left_layout.addWidget(com_port)
         left_layout.addWidget(valid_ids)
         left_layout.addWidget(baud_label)
         left_layout.addWidget(baud)
@@ -466,8 +537,8 @@ class ModbusView(QWidget):
         right_panel.setObjectName("rightPanel")
 
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(24, 18, 24, 16)
-        right_layout.setSpacing(7)
+        right_layout.setContentsMargins(26, 20, 26, 20)
+        right_layout.setSpacing(10)
 
         tcp_title = QLabel("TCP/IP Communication")
         tcp_title.setObjectName("sectionTitle")
@@ -475,24 +546,25 @@ class ModbusView(QWidget):
         ip_label = QLabel("IP Address")
         ip_label.setObjectName("smallLabel")
 
-        ip_address = QLineEdit("192.168.1.100")
-        ip_address.setFixedHeight(36)
+        ip_address = QLineEdit()
+        ip_address.setPlaceholderText("192.168.1.100")
+        ip_address.setFixedHeight(40)
 
         subnet_label = QLabel("Subnet Mask")
         subnet_label.setObjectName("smallLabel")
 
         subnet = QLineEdit("255.255.255.0")
-        subnet.setFixedHeight(36)
+        subnet.setFixedHeight(40)
 
         port_label = QLabel("TCP Port")
         port_label.setObjectName("smallLabel")
 
         tcp_port = QLineEdit("502")
-        tcp_port.setFixedHeight(36)
+        tcp_port.setFixedHeight(40)
 
         apply_tcp = QPushButton("APPLY")
         apply_tcp.setObjectName("applyButton")
-        apply_tcp.setFixedSize(82, 40)
+        apply_tcp.setFixedSize(100, 42)
         apply_tcp.setVisible(True)
         apply_tcp.show()
         apply_tcp.setStyleSheet("""
@@ -501,8 +573,8 @@ class ModbusView(QWidget):
                 color: white;
                 border: none;
                 border-radius: 7px;
-                font-family: "Times New Roman";
-                font-size: 16px;
+                font-family: Cambria;
+                font-size: 18px;
                 font-weight: bold;
             }
             QPushButton:hover { background: #14758F; }
@@ -514,23 +586,45 @@ class ModbusView(QWidget):
 
         port1_label = QLabel("Port 1")
         port1_label.setObjectName("smallLabel")
+        port1_label.setAlignment(Qt.AlignCenter)
 
         port2_label = QLabel("Port 2")
         port2_label.setObjectName("smallLabel")
+        port2_label.setAlignment(Qt.AlignCenter)
 
         port1 = QComboBox()
-        port1.addItems(["9600"])
-        port1.setCurrentIndex(0)
-        port1.setFixedHeight(36)
+        port1.addItems([
+            "1200",
+            "2400",
+            "4800",
+            "9600",
+            "19200",
+            "38400",
+            "57600",
+            "115200",
+            "230400"
+        ])
+        port1.setCurrentText("9600")
+        port1.setFixedSize(115, 40)
 
         port2 = QComboBox()
-        port2.addItems(["9600"])
-        port2.setCurrentIndex(0)
-        port2.setFixedHeight(36)
+        port2.addItems([
+            "1200",
+            "2400",
+            "4800",
+            "9600",
+            "19200",
+            "38400",
+            "57600",
+            "115200",
+            "230400"
+        ])
+        port2.setCurrentText("9600")
+        port2.setFixedSize(115, 40)
 
         apply_port1 = QPushButton("APPLY")
         apply_port1.setObjectName("applyButton")
-        apply_port1.setFixedSize(82, 40)
+        apply_port1.setFixedSize(100, 42)
         apply_port1.setVisible(True)
         apply_port1.show()
         apply_port1.setStyleSheet("""
@@ -539,8 +633,8 @@ class ModbusView(QWidget):
                 color: white;
                 border: none;
                 border-radius: 7px;
-                font-family: "Times New Roman";
-                font-size: 16px;
+                font-family: Cambria;
+                font-size: 18px;
                 font-weight: bold;
             }
             QPushButton:hover { background: #14758F; }
@@ -549,7 +643,7 @@ class ModbusView(QWidget):
 
         apply_port2 = QPushButton("APPLY")
         apply_port2.setObjectName("applyButton")
-        apply_port2.setFixedSize(82, 40)
+        apply_port2.setFixedSize(100, 42)
         apply_port2.setVisible(True)
         apply_port2.show()
         apply_port2.setStyleSheet("""
@@ -558,8 +652,8 @@ class ModbusView(QWidget):
                 color: white;
                 border: none;
                 border-radius: 7px;
-                font-family: "Times New Roman";
-                font-size: 16px;
+                font-family: Cambria;
+                font-size: 18px;
                 font-weight: bold;
             }
             QPushButton:hover { background: #14758F; }
@@ -567,15 +661,19 @@ class ModbusView(QWidget):
         """)
 
         port_grid = QGridLayout()
-        port_grid.setHorizontalSpacing(28)
-        port_grid.setVerticalSpacing(8)
+        port_grid.setHorizontalSpacing(80)
+        port_grid.setVerticalSpacing(10)
 
-        port_grid.addWidget(port1_label, 0, 0)
-        port_grid.addWidget(port2_label, 0, 1)
-        port_grid.addWidget(port1, 1, 0)
-        port_grid.addWidget(port2, 1, 1)
-        port_grid.addWidget(apply_port1, 2, 0)
-        port_grid.addWidget(apply_port2, 2, 1)
+        # Keep Port 1 aligned directly with the right-panel left margin.
+        port_grid.setColumnStretch(0, 0)
+        port_grid.setColumnStretch(1, 1)
+
+        port_grid.addWidget(port1_label, 0, 0, Qt.AlignLeft)
+        port_grid.addWidget(port2_label, 0, 1, Qt.AlignCenter)
+        port_grid.addWidget(port1, 1, 0, Qt.AlignLeft)
+        port_grid.addWidget(port2, 1, 1, Qt.AlignCenter)
+        port_grid.addWidget(apply_port1, 2, 0, Qt.AlignLeft)
+        port_grid.addWidget(apply_port2, 2, 1, Qt.AlignCenter)
 
         right_layout.addWidget(tcp_title)
         right_layout.addWidget(ip_label)
@@ -584,8 +682,12 @@ class ModbusView(QWidget):
         right_layout.addWidget(subnet)
         right_layout.addWidget(port_label)
         right_layout.addWidget(tcp_port)
-        right_layout.addWidget(apply_tcp)
-        right_layout.addSpacing(12)
+        tcp_apply_row = QHBoxLayout()
+        tcp_apply_row.addWidget(apply_tcp)
+        tcp_apply_row.addStretch()
+
+        right_layout.addLayout(tcp_apply_row)
+        right_layout.addSpacing(14)
         right_layout.addWidget(port_title)
         right_layout.addLayout(port_grid)
         right_layout.addStretch()
@@ -594,3 +696,237 @@ class ModbusView(QWidget):
         main_layout.addWidget(right_panel, 1)
 
         root.addWidget(main, 1)
+
+        # Keep references for UI actions.
+        self._status = status
+        self._connect_button = connect
+        self._protocol = protocol
+        self._slave_id = slave_id
+        self._baud = baud
+        self._com_port = com_port
+        self._ip_address = ip_address
+        self._subnet = subnet
+        self._tcp_port = tcp_port
+        self._port1 = port1
+        self._port2 = port2
+
+        # Connect every action button after all widgets are created.
+        connect.clicked.connect(self.handle_connect)
+        apply_rtu.clicked.connect(self.handle_apply_rtu)
+        apply_tcp.clicked.connect(self.handle_apply_tcp)
+        apply_port1.clicked.connect(self.handle_apply_port1)
+        apply_port2.clicked.connect(self.handle_apply_port2)
+
+    def add_terminal_message(self, message):
+        self.terminal_messages.append(str(message))
+        self.terminal_message.setPlainText(
+            "\n".join(self.terminal_messages)
+        )
+        scrollbar = self.terminal_message.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+
+    def handle_connect(self):
+        if self._connect_button.text() == "DISCONNECT":
+            self._status.setText("● Not Connected")
+            self._connect_button.setText("CONNECT")
+            self.add_terminal_message("Disconnected")
+            return
+
+        if self._com_port.count() == 0:
+            self._status.setText("● Not Connected")
+            self._connect_button.setText("CONNECT")
+            self.add_terminal_message("COM Port not connected")
+            return
+
+        selected_port = self._com_port.currentText().strip()
+        if not selected_port:
+            self._status.setText("● Not Connected")
+            self._connect_button.setText("CONNECT")
+            self.add_terminal_message("COM Port not connected")
+            return
+
+        self._status.setText("● Connected")
+        self._connect_button.setText("DISCONNECT")
+        self.add_terminal_message("Connected successfully")
+        self.add_terminal_message(f"COM Port connected: {selected_port}")
+        self.add_terminal_message(
+            f"Protocol: {self._protocol.currentText()}"
+        )
+
+    def handle_apply_rtu(self):
+        # RTU settings can only be applied after a COM port is connected.
+        if (
+            self._connect_button.text() != "DISCONNECT"
+            or not self._com_port.currentText().strip()
+        ):
+            self.add_terminal_message("COM Port not connected")
+            return
+
+        slave_text = self._slave_id.text().strip()
+
+        try:
+            slave_id = int(slave_text)
+        except ValueError:
+            self.add_terminal_message("Slave ID must be 1 to 63")
+            return
+
+        if not 1 <= slave_id <= 63:
+            self.add_terminal_message("Slave ID must be 1 to 63")
+            return
+
+        self.add_terminal_message(
+            f"RTU settings applied | Slave ID: {slave_id} | "
+            f"Baud Rate: {self._baud.currentText()}"
+        )
+
+        self.add_terminal_message(
+            f"COM Port: {self._com_port.currentText()}"
+        )
+
+    def handle_apply_tcp(self):
+        ip_text = self._ip_address.text().strip()
+        subnet_text = self._subnet.text().strip()
+        tcp_port_text = self._tcp_port.text().strip()
+
+        # Validate IPv4 address.
+        try:
+            ip_address(ip_text)
+        except ValueError:
+            self.add_terminal_message("Invalid IP Address")
+            return
+
+        # Validate subnet mask as a valid IPv4 netmask.
+        try:
+            ip_network(f"0.0.0.0/{subnet_text}", strict=False)
+        except ValueError:
+            self.add_terminal_message("Invalid Subnet Mask")
+            return
+
+        try:
+            tcp_port = int(tcp_port_text)
+        except ValueError:
+            self.add_terminal_message("TCP Port must be between 1 and 65535")
+            return
+
+        if not 1 <= tcp_port <= 65535:
+            self.add_terminal_message("TCP Port must be between 1 and 65535")
+            return
+
+        command = (
+            f"ETH,IP={self._ip_address.text().strip()},"
+            f"MASK={self._subnet.text().strip()},"
+            f"PORT={tcp_port}\n"
+        )
+
+        # Send the TCP/IP command to the selected COM port when connected.
+        if (
+            self._connect_button.text() == "DISCONNECT"
+            and self._com_port.currentText().strip()
+        ):
+            try:
+                import serial
+
+                with serial.Serial(
+                    self._com_port.currentText().strip(),
+                    int(self._baud.currentText()),
+                    timeout=1
+                ) as ser:
+                    ser.write(command.encode("ascii"))
+                self.add_terminal_message("Settings applied")
+            except Exception as exc:
+                self.add_terminal_message(f"Failed to send settings: {exc}")
+        else:
+            self.add_terminal_message("COM Port not connected")
+
+    def handle_apply_port1(self):
+        command = f"UART,CH=1,BAUD={self._port1.currentText()}\n"
+
+        if (
+            self._connect_button.text() == "DISCONNECT"
+            and self._com_port.currentText().strip()
+        ):
+            try:
+                import serial
+
+                with serial.Serial(
+                    self._com_port.currentText().strip(),
+                    int(self._baud.currentText()),
+                    timeout=1
+                ) as ser:
+                    ser.write(command.encode("ascii"))
+                self.add_terminal_message("Settings applied")
+            except Exception as exc:
+                self.add_terminal_message(f"Failed to send settings: {exc}")
+        else:
+            self.add_terminal_message("COM Port not connected")
+
+    def handle_apply_port2(self):
+        command = f"UART,CH=2,BAUD={self._port2.currentText()}\n"
+
+        if (
+            self._connect_button.text() == "DISCONNECT"
+            and self._com_port.currentText().strip()
+        ):
+            try:
+                import serial
+
+                with serial.Serial(
+                    self._com_port.currentText().strip(),
+                    int(self._baud.currentText()),
+                    timeout=1
+                ) as ser:
+                    ser.write(command.encode("ascii"))
+                self.add_terminal_message("Settings applied")
+            except Exception as exc:
+                self.add_terminal_message(f"Failed to send settings: {exc}")
+        else:
+            self.add_terminal_message("COM Port not connected")
+
+    def handle_refresh(self):
+        self.refresh_com_ports()
+
+        self.terminal_messages.clear()
+        self.terminal_message.setPlainText("Device Terminal Ready")
+
+        ports = [
+            self._com_port.itemText(i)
+            for i in range(self._com_port.count())
+        ]
+
+        if ports:
+            self.add_terminal_message(
+                "Refresh completed | COM Port detected: " + ", ".join(ports)
+            )
+        else:
+            self.add_terminal_message(
+                "Refresh completed | COM Port not connected"
+            )
+
+    def refresh_com_ports(self):
+        ports = sorted(
+            [port.device for port in list_ports.comports()],
+            key=lambda value: (
+                not value.upper().startswith("COM"),
+                int(value[3:])
+                if value.upper().startswith("COM")
+                and value[3:].isdigit()
+                else value.upper()
+            )
+        )
+
+        current_port = self.com_port.currentText()
+
+        self.com_port.blockSignals(True)
+        self.com_port.clear()
+        self.com_port.addItems(ports)
+
+        if current_port in ports:
+            self.com_port.setCurrentText(current_port)
+
+        self.com_port.blockSignals(False)
+
+        # Always show the COM Port box so the user can manually select
+        # any currently connected COM port.
+        self.com_port_label.setVisible(True)
+        self.com_port.setVisible(True)
+

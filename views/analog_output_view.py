@@ -1,4 +1,4 @@
-import os
+﻿import os
 
 from PySide6.QtCore import Signal, Qt, QPoint
 from PySide6.QtGui import QFont, QPixmap, QPainter, QPen
@@ -277,24 +277,36 @@ class AnalogOutputView(QWidget):
         title_layout.setSpacing(0)
 
         company = QLabel("Nelumbo Automation Pvt Ltd")
-        company.setFixedHeight(25)
+        company.setFixedHeight(22)
+        company.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
         company.setStyleSheet("""
-            color: white;
-            font-family: "Times New Roman";
-            font-size: 17px;
-            font-weight: bold;
+            QLabel {
+                color: white;
+                font-family: Cambria;
+            font-size: 20px;
+                font-weight: bold;
+                padding: 0px;
+                margin: 0px;
+            }
         """)
 
         subtitle = QLabel("Connectivity Utility Suite")
-        subtitle.setFixedHeight(17)
+        subtitle.setFixedHeight(15)
+        subtitle.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         subtitle.setStyleSheet("""
-            color: white;
-            font-family: "Times New Roman";
-            font-size: 11px;
+            QLabel {
+                color: white;
+                font-family: Cambria;
+            font-size: 16px;
+                padding: 0px;
+                margin: 0px;
+            }
         """)
 
+        title_layout.addStretch()
         title_layout.addWidget(company)
         title_layout.addWidget(subtitle)
+        title_layout.addStretch()
 
         header_layout.addLayout(title_layout)
         header_layout.addStretch()
@@ -531,3 +543,4 @@ class AnalogOutputView(QWidget):
             button.style().polish(button)
 
         self.selected_channel = channel
+

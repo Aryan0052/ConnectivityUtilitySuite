@@ -1,4 +1,4 @@
-import os
+﻿import os
 
 from PySide6.QtCore import Signal, Qt, QPoint
 from PySide6.QtGui import QFont, QPixmap, QPainter, QPen
@@ -83,7 +83,7 @@ class AnalogInputView(QWidget):
             QWidget {
                 background: #F5FAEF;
                 color: #111111;
-                font-family: "Times New Roman";
+                font-family: Cambria;
             }
 
             QFrame#header {
@@ -107,8 +107,8 @@ class AnalogInputView(QWidget):
                 color: white;
                 border: none;
                 border-radius: 7px;
-                font-family: "Times New Roman";
-                font-size: 20px;
+                font-family: Cambria;
+                font-size: 18px;
                 font-weight: bold;
             }
 
@@ -126,7 +126,7 @@ class AnalogInputView(QWidget):
                 color: white;
                 border: none;
                 border-radius: 7px;
-                font-size: 16px;
+                font-size: 18px;
                 font-weight: bold;
             }
 
@@ -135,7 +135,7 @@ class AnalogInputView(QWidget):
                 color: #18C53D;
                 border: 2px solid #35D65A;
                 border-radius: 12px;
-                font-size: 14px;
+                font-size: 13px;
                 font-weight: bold;
             }
 
@@ -145,7 +145,7 @@ class AnalogInputView(QWidget):
                 border: 1px solid #C7D0CD;
                 border-radius: 8px;
                 padding: 5px 10px;
-                font-family: "Times New Roman";
+                font-family: Cambria;
                 font-size: 16px;
             }
 
@@ -166,23 +166,23 @@ class AnalogInputView(QWidget):
             QLabel#status {
                 color: #00C928;
                 font-weight: bold;
-                font-size: 17px;
+                font-size: 16px;
             }
 
             QLabel#sectionTitle {
-                font-size: 20px;
+                font-size: 16px;
                 font-weight: bold;
                 border-bottom: 3px solid #BFC5C3;
                 padding-bottom: 5px;
             }
 
             QLabel#mainTitle {
-                font-size: 20px;
+                font-size: 16px;
                 font-weight: bold;
             }
 
             QLabel#channelTitle {
-                font-size: 20px;
+                font-size: 16px;
                 font-weight: bold;
             }
 
@@ -277,24 +277,36 @@ class AnalogInputView(QWidget):
         title_layout.setSpacing(0)
 
         company = QLabel("Nelumbo Automation Pvt Ltd")
-        company.setFixedHeight(25)
+        company.setFixedHeight(22)
+        company.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
         company.setStyleSheet("""
-            color: white;
-            font-family: "Times New Roman";
-            font-size: 17px;
-            font-weight: bold;
+            QLabel {
+                color: white;
+                font-family: Cambria;
+                font-size: 20px;
+                font-weight: bold;
+                padding: 0px;
+                margin: 0px;
+            }
         """)
 
         subtitle = QLabel("Connectivity Utility Suite")
-        subtitle.setFixedHeight(17)
+        subtitle.setFixedHeight(15)
+        subtitle.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         subtitle.setStyleSheet("""
-            color: white;
-            font-family: "Times New Roman";
-            font-size: 11px;
+            QLabel {
+                color: white;
+                font-family: Cambria;
+                font-size: 16px;
+                padding: 0px;
+                margin: 0px;
+            }
         """)
 
+        title_layout.addStretch()
         title_layout.addWidget(company)
         title_layout.addWidget(subtitle)
+        title_layout.addStretch()
 
         header_layout.addLayout(title_layout)
         header_layout.addStretch()
@@ -329,7 +341,7 @@ class AnalogInputView(QWidget):
 
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(20, 18, 20, 18)
-        left_layout.setSpacing(12)
+        left_layout.setSpacing(10)
 
         connect = QPushButton("CONNECT")
         connect.setObjectName("connectButton")
@@ -342,8 +354,8 @@ class AnalogInputView(QWidget):
                 color: white;
                 border: none;
                 border-radius: 7px;
-                font-family: "Times New Roman";
-                font-size: 20px;
+                font-family: Cambria;
+                font-size: 18px;
                 font-weight: bold;
             }
             QPushButton:hover {
@@ -388,7 +400,8 @@ class AnalogInputView(QWidget):
         valid = QLabel("Valid Slave IDs: 1 to 63")
         valid.setStyleSheet("""
             color: #555555;
-            font-size: 13px;
+            font-family: Cambria;
+            font-size: 16px;
         """)
         left_layout.addWidget(valid)
 
@@ -418,8 +431,8 @@ class AnalogInputView(QWidget):
                 color: white;
                 border: none;
                 border-radius: 7px;
-                font-family: "Times New Roman";
-                font-size: 16px;
+                font-family: Cambria;
+                font-size: 18px;
                 font-weight: bold;
             }
             QPushButton:hover {
@@ -445,7 +458,8 @@ class AnalogInputView(QWidget):
 
         terminal_title = QLabel("Device Terminal")
         terminal_title.setStyleSheet("""
-            font-size: 18px;
+            font-family: Cambria;
+            font-size: 16px;
             font-weight: bold;
         """)
 
@@ -469,141 +483,30 @@ class AnalogInputView(QWidget):
         # ---------------------------------------------------------
         # RIGHT PANEL
         # ---------------------------------------------------------
-
         right_panel = QFrame()
         right_panel.setObjectName("rightPanel")
 
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(40, 20, 40, 20)
-        right_layout.setSpacing(10)
+        right_layout.setContentsMargins(
+            40,
+            20,
+            40,
+            20
+        )
+        right_layout.setSpacing(0)
 
-        channel_title = QLabel("Analog Input Channel")
-        channel_title.setObjectName("channelTitle")
-        right_layout.addWidget(channel_title)
-
-        # Channel list
-        channels_layout = QVBoxLayout()
-        channels_layout.setSpacing(8)
-
-        self.channel_boxes = []
-
-        for i in range(1, 9):
-
-            channel_button = QPushButton(
-                f"Analog Input Channel - {i}"
-            )
-            channel_button.setObjectName("channelButton")
-            channel_button.setFixedHeight(31)
-            channel_button.clicked.connect(
-                lambda checked=False, channel=i: self.select_channel(channel)
-            )
-
-            self.channel_boxes.append(channel_button)
-            channels_layout.addWidget(channel_button)
-
-        channel_row = QHBoxLayout()
-        channel_row.addStretch()
-        channel_row.addLayout(channels_layout)
-        channel_row.addStretch()
-
-        right_layout.addLayout(channel_row)
-
-        right_layout.addSpacing(4)
-
-        # ---------------------------------------------------------
-        # BOTTOM CONFIGURATION
-        # ---------------------------------------------------------
-
-        bottom_layout = QHBoxLayout()
-        bottom_layout.setSpacing(22)
-
-        # Configuration frame
-        config_frame = QFrame()
-        config_frame.setObjectName("configFrame")
-        config_frame.setFixedSize(225, 166)
-
-        config_layout = QVBoxLayout(config_frame)
-        config_layout.setContentsMargins(10, 8, 10, 8)
-        config_layout.setSpacing(8)
-
-        input_type = QComboBox()
-        input_type.setObjectName("inputType")
-        input_type.addItem("I/P Type")
-        input_type.addItems([
-            "0-50mV",
-            "0-100mV",
-            "0-250mV",
-            "0-5V",
-            "0-10V",
-            "-250mV to +250mV",
-            "-10V to +10V",
-            "4-20mA",
-            "0-20mA"
-        ])
-        input_type.setFixedHeight(31)
-
-        min_layout = QHBoxLayout()
-
-        min_label = QLabel("Min off set range")
-        min_label.setStyleSheet("""
-            font-size: 14px;
-            font-weight: bold;
-        """)
-
-        min_edit = QLineEdit()
-        min_edit.setFixedSize(74, 24)
-
-        min_layout.addWidget(min_label)
-        min_layout.addStretch()
-        min_layout.addWidget(min_edit)
-
-        max_layout = QHBoxLayout()
-
-        max_label = QLabel("Max off set range")
-        max_label.setStyleSheet("""
-            font-size: 14px;
-            font-weight: bold;
-        """)
-
-        max_edit = QLineEdit()
-        max_edit.setFixedSize(74, 24)
-
-        max_layout.addWidget(max_label)
-        max_layout.addStretch()
-        max_layout.addWidget(max_edit)
-
-        ok = QPushButton("OK")
-        ok.setObjectName("okButton")
-        ok.setFixedSize(43, 30)
-
-        ok_layout = QHBoxLayout()
-        ok_layout.addStretch()
-        ok_layout.addWidget(ok)
-
-        self.input_type = input_type
-        self.min_edit = min_edit
-        self.max_edit = max_edit
-        self.config_frame = config_frame
-
-        config_layout.addWidget(input_type)
-        config_layout.addLayout(min_layout)
-        config_layout.addLayout(max_layout)
-        config_layout.addLayout(ok_layout)
-
-        bottom_layout.addWidget(config_frame)
-
-        # Keep the configuration box hidden until a channel is clicked.
-        config_frame.hide()
-
-        right_layout.addStretch()
-        right_layout.addLayout(bottom_layout)
+        # Right panel intentionally blank.
 
         main_layout.addWidget(left_panel)
         main_layout.addWidget(right_panel, 1)
 
         root.addWidget(main, 1)
-    def select_channel(self, channel):
-        """Open the configuration box for the selected channel."""
-        self.selected_channel = channel
-        self.config_frame.show()
-        self.input_type.setCurrentIndex(0)
+        main_layout.addWidget(right_panel, 1)
+
+        root.addWidget(main, 1)
+
+
+
+
+
+

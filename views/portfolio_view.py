@@ -1,5 +1,7 @@
-﻿from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPainter, QPen
+﻿import os
+
+from PySide6.QtCore import Qt, Signal, QUrl
+from PySide6.QtGui import QPainter, QPen, QPixmap, QDesktopServices
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -14,73 +16,31 @@ class PortfolioBackground(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+
+        self.pixmap = QPixmap(
+            os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                "assets",
+                "portfolio_BG.png"
+            )
+        )
+
         self.lower()
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
 
-        # Light PDF-style page background.
-        painter.fillRect(self.rect(), Qt.white)
+        if not self.pixmap.isNull():
+            scaled = self.pixmap.scaled(
+                self.size(),
+                Qt.IgnoreAspectRatio,
+                Qt.SmoothTransformation
+            )
 
-        width = self.width()
-        height = self.height()
-
-        # Very subtle pale decorative curves.
-        pen = QPen("#E8F1EB")
-        pen.setWidth(2)
-        painter.setPen(pen)
-
-        painter.drawArc(
-            int(-width * 0.18),
-            int(-height * 0.22),
-            int(width * 0.48),
-            int(height * 0.62),
-            15 * 16,
-            80 * 16,
-        )
-
-        painter.drawArc(
-            int(width * 0.70),
-            int(-height * 0.10),
-            int(width * 0.45),
-            int(height * 0.70),
-            95 * 16,
-            80 * 16,
-        )
-
-        painter.drawArc(
-            int(-width * 0.12),
-            int(height * 0.68),
-            int(width * 0.55),
-            int(height * 0.42),
-            170 * 16,
-            65 * 16,
-        )
-
-        # Faint secondary curves.
-        pen = QPen("#F0F6F1")
-        pen.setWidth(1)
-        painter.setPen(pen)
-
-        painter.drawArc(
-            int(-width * 0.10),
-            int(-height * 0.08),
-            int(width * 0.38),
-            int(height * 0.48),
-            10 * 16,
-            95 * 16,
-        )
-
-        painter.drawArc(
-            int(width * 0.76),
-            int(height * 0.42),
-            int(width * 0.30),
-            int(height * 0.45),
-            90 * 16,
-            95 * 16,
-        )
+            painter.drawPixmap(0, 0, scaled)
 
         painter.end()
 
@@ -100,7 +60,7 @@ class PortfolioView(QWidget):
 
         self.setStyleSheet("""
             QWidget#portfolioView {
-                background: white;
+                background: transparent;
             }
 
             QFrame#portfolioCard {
@@ -120,8 +80,8 @@ class PortfolioView(QWidget):
             QLabel#portfolioTitle {
                 color: white;
                 background: transparent;
-                font-family: "Times New Roman";
-                font-size: 27px;
+                font-family: Cambria;
+                font-size: 29px;
                 font-weight: normal;
             }
 
@@ -131,8 +91,8 @@ class PortfolioView(QWidget):
                 border: 1px solid #159E78;
                 border-radius: 9px;
 
-                font-family: "Times New Roman";
-                font-size: 18px;
+                font-family: Cambria;
+                font-size: 23px;
                 font-weight: normal;
 
                 text-align: left;
@@ -150,8 +110,8 @@ class PortfolioView(QWidget):
             QLabel#portfolioFooter {
                 color: #3C93A0;
                 background: transparent;
-                font-family: "Times New Roman";
-                font-size: 10px;
+                font-family: Cambria;
+                font-size: 23px;
             }
         """)
 
@@ -159,7 +119,7 @@ class PortfolioView(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Page-2 style background behind the existing blue card.
+        # Portfolio background image.
         self.background = PortfolioBackground(self)
         self.background.setGeometry(self.rect())
         self.background.lower()
@@ -255,6 +215,18 @@ class PortfolioView(QWidget):
         contact_us.setObjectName("portfolioFooter")
         contact_us.setAlignment(Qt.AlignRight)
 
+        # Make footer labels clickable without changing their appearance.
+        product_portfolio.setCursor(Qt.PointingHandCursor)
+        contact_us.setCursor(Qt.PointingHandCursor)
+
+        product_portfolio.mousePressEvent = lambda event: QDesktopServices.openUrl(
+            QUrl("https://nelumbo.in/product-portfolio")
+        )
+
+        contact_us.mousePressEvent = lambda event: QDesktopServices.openUrl(
+            QUrl("https://nelumbo.in/contact-us")
+        )
+
         footer_text.addWidget(product_portfolio)
         footer_text.addWidget(contact_us)
 
@@ -285,9 +257,10 @@ class PortfolioView(QWidget):
         )
 
     def resizeEvent(self, event):
-        # Keep the decorative background behind the full page.
+        # Keep the background image behind the full page.
         self.background.setGeometry(self.rect())
         self.background.lower()
+
         super().resizeEvent(event)
 
     def create_button(self, text):

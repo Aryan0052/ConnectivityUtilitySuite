@@ -43,7 +43,6 @@ class PdfBackButton(QPushButton):
             QPainter.Antialiasing
         )
 
-        # White circular button.
         painter.setPen(
             QPen(Qt.white, 2)
         )
@@ -56,7 +55,6 @@ class PdfBackButton(QPushButton):
             QRectF(1, 1, 52, 52)
         )
 
-        # PDF-style blue arrow.
         painter.setPen(Qt.NoPen)
 
         painter.setBrush(
@@ -121,23 +119,22 @@ class DigitalInputView(QWidget):
                     stop: 0 #18A9B5,
                     stop: 1 #19518D
                 );
-
                 border: none;
             }
 
             QLabel#company {
                 color: white;
                 background: transparent;
-                font-family: "Times New Roman";
-                font-size: 17px;
+                font-family: Cambria;
+                font-size: 20px;
                 font-weight: bold;
             }
 
             QLabel#suite {
                 color: white;
                 background: transparent;
-                font-family: "Times New Roman";
-                font-size: 11px;
+                font-family: Cambria;
+                font-size: 16px;
             }
 
             QFrame#leftPanel,
@@ -150,23 +147,23 @@ class DigitalInputView(QWidget):
             QLabel#label {
                 color: #202020;
                 background: transparent;
-                font-family: "Times New Roman";
-                font-size: 12px;
+                font-family: Cambria;
+                font-size: 16px;
             }
 
             QLabel#sectionTitle {
                 color: #222222;
                 background: transparent;
-                font-family: "Times New Roman";
-                font-size: 14px;
+                font-family: Cambria;
+                font-size: 16px;
                 font-weight: bold;
             }
 
             QLabel#status {
                 color: #10C51F;
                 background: transparent;
-                font-family: "Times New Roman";
-                font-size: 13px;
+                font-family: Cambria;
+                font-size: 16px;
                 font-weight: bold;
             }
 
@@ -177,8 +174,8 @@ class DigitalInputView(QWidget):
                 border: 1px solid #C8CFCC;
                 border-radius: 7px;
                 padding-left: 8px;
-                font-family: "Times New Roman";
-                font-size: 12px;
+                font-family: Cambria;
+                font-size: 16px;
                 min-height: 27px;
             }
 
@@ -188,8 +185,8 @@ class DigitalInputView(QWidget):
                 border: 1px solid #C8CFCC;
                 selection-background-color: #DDEBE6;
                 selection-color: #222222;
-                font-family: "Times New Roman";
-                font-size: 12px;
+                font-family: Cambria;
+                font-size: 16px;
                 outline: none;
             }
 
@@ -210,8 +207,8 @@ class DigitalInputView(QWidget):
                 color: white;
                 border: none;
                 border-radius: 7px;
-                font-family: "Times New Roman";
-                font-size: 15px;
+                font-family: Cambria;
+                font-size: 18px;
                 font-weight: bold;
             }
 
@@ -224,12 +221,11 @@ class DigitalInputView(QWidget):
                     stop: 0 #13A9B6,
                     stop: 1 #18548D
                 );
-
                 color: white;
                 border: none;
                 border-radius: 7px;
-                font-family: "Times New Roman";
-                font-size: 13px;
+                font-family: Cambria;
+                font-size: 18px;
                 font-weight: bold;
             }
 
@@ -238,8 +234,8 @@ class DigitalInputView(QWidget):
                 color: #16BD34;
                 border: 2px solid #48D45C;
                 border-radius: 9px;
-                font-family: "Times New Roman";
-                font-size: 11px;
+                font-family: Cambria;
+                font-size: 13px;
                 font-weight: bold;
             }
         """)
@@ -247,7 +243,10 @@ class DigitalInputView(QWidget):
         root_layout = QVBoxLayout(self)
 
         root_layout.setContentsMargins(
-            0, 0, 0, 0
+            0,
+            0,
+            0,
+            0
         )
 
         root_layout.setSpacing(0)
@@ -266,7 +265,9 @@ class DigitalInputView(QWidget):
             5
         )
 
-        # Logo.
+        header_layout.setSpacing(0)
+
+        # Logo
         logo = QLabel()
 
         if self.logo_path.exists():
@@ -295,7 +296,7 @@ class DigitalInputView(QWidget):
 
         header_layout.addWidget(logo)
 
-        # Header text.
+        # Header text
         text_layout = QVBoxLayout()
 
         text_layout.setSpacing(0)
@@ -327,7 +328,7 @@ class DigitalInputView(QWidget):
 
         header_layout.addStretch()
 
-        # Back.
+        # Back
         self.back_button = PdfBackButton()
 
         header_layout.addWidget(
@@ -398,7 +399,7 @@ class DigitalInputView(QWidget):
             QLabel {
                 color: #13D324;
                 background: transparent;
-                font-size: 14px;
+                font-size: 16px;
             }
         """)
 
@@ -503,7 +504,10 @@ class DigitalInputView(QWidget):
         left_layout.addSpacing(5)
 
         self.slave_id = QLineEdit()
-        self.slave_id.setText("1")
+
+        self.slave_id.setText(
+            "1"
+        )
 
         left_layout.addWidget(
             self.slave_id
@@ -521,7 +525,7 @@ class DigitalInputView(QWidget):
             QLabel {
                 color: #555555;
                 background: transparent;
-                font-size: 10px;
+                font-size: 16px;
             }
         """)
 
@@ -567,8 +571,8 @@ class DigitalInputView(QWidget):
                 border: 1px solid #C8CFCC;
                 selection-background-color: #DDEBE6;
                 selection-color: #222222;
-                font-family: "Times New Roman";
-                font-size: 12px;
+                font-family: Cambria;
+                font-size: 16px;
             }
 
             QAbstractItemView::item {
@@ -670,7 +674,9 @@ class DigitalInputView(QWidget):
             }
         """)
 
-        terminal.setFixedHeight(75)
+        terminal.setFixedHeight(
+            75
+        )
 
         left_layout.addWidget(
             terminal
@@ -696,10 +702,12 @@ class DigitalInputView(QWidget):
             13
         )
 
-        # Intentionally blank.
+        # Intentionally blank
         right_layout.setSpacing(0)
 
-        content.addWidget(left)
+        content.addWidget(
+            left
+        )
 
         content.addWidget(
             right,

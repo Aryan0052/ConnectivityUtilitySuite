@@ -126,16 +126,16 @@ class DigitalOutputView(QWidget):
             QLabel#company {
                 color: white;
                 background: transparent;
-                font-family: "Times New Roman";
-                font-size: 17px;
+                font-family: Cambria;
+                font-size: 20px;
                 font-weight: bold;
             }
 
             QLabel#suite {
                 color: white;
                 background: transparent;
-                font-family: "Times New Roman";
-                font-size: 11px;
+                font-family: Cambria;
+                font-size: 16px;
             }
 
             QFrame#leftPanel,
@@ -148,23 +148,23 @@ class DigitalOutputView(QWidget):
             QLabel#label {
                 color: #202020;
                 background: transparent;
-                font-family: "Times New Roman";
-                font-size: 12px;
+                font-family: Cambria;
+                font-size: 16px;
             }
 
             QLabel#sectionTitle {
                 color: #222222;
                 background: transparent;
-                font-family: "Times New Roman";
-                font-size: 14px;
+                font-family: Cambria;
+                font-size: 16px;
                 font-weight: bold;
             }
 
             QLabel#status {
                 color: #10C51F;
                 background: transparent;
-                font-family: "Times New Roman";
-                font-size: 13px;
+                font-family: Cambria;
+                font-size: 16px;
                 font-weight: bold;
             }
 
@@ -175,8 +175,8 @@ class DigitalOutputView(QWidget):
                 border: 1px solid #C8CFCC;
                 border-radius: 7px;
                 padding-left: 8px;
-                font-family: "Times New Roman";
-                font-size: 12px;
+                font-family: Cambria;
+                font-size: 16px;
                 min-height: 27px;
             }
 
@@ -188,7 +188,7 @@ class DigitalOutputView(QWidget):
                 border: 1px solid #C8CFCC;
                 selection-background-color: #DDEBE6;
                 selection-color: #222222;
-                font-family: "Times New Roman";
+                font-family: Cambria;
                 font-size: 12px;
                 outline: none;
             }
@@ -210,8 +210,8 @@ class DigitalOutputView(QWidget):
                 color: white;
                 border: none;
                 border-radius: 7px;
-                font-family: "Times New Roman";
-                font-size: 15px;
+                font-family: Cambria;
+                font-size: 18px;
                 font-weight: bold;
             }
 
@@ -228,8 +228,8 @@ class DigitalOutputView(QWidget):
                 color: white;
                 border: none;
                 border-radius: 7px;
-                font-family: "Times New Roman";
-                font-size: 13px;
+                font-family: Cambria;
+                font-size: 18px;
                 font-weight: bold;
             }
 
@@ -238,8 +238,8 @@ class DigitalOutputView(QWidget):
                 color: #16BD34;
                 border: 2px solid #48D45C;
                 border-radius: 9px;
-                font-family: "Times New Roman";
-                font-size: 11px;
+                font-family: Cambria;
+                font-size: 13px;
                 font-weight: bold;
             }
         """)
@@ -408,7 +408,8 @@ class DigitalOutputView(QWidget):
             QLabel {
                 color: #13D324;
                 background: transparent;
-                font-size: 14px;
+                font-family: Cambria;
+                font-size: 16px;
             }
         """)
 
@@ -580,7 +581,7 @@ class DigitalOutputView(QWidget):
                 border: 1px solid #C8CFCC;
                 selection-background-color: #DDEBE6;
                 selection-color: #222222;
-                font-family: "Times New Roman";
+                font-family: Cambria;
                 font-size: 12px;
             }
 

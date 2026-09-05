@@ -28,10 +28,10 @@ class MainWindow(QMainWindow):
             "Connectivity Utility Suite"
         )
 
-        # KEEP EXISTING APPLICATION SIZE.
+        # Fixed application size.
         self.setFixedSize(
-            1024,
-            768
+            1100,
+            870
         )
 
         self.setStyleSheet("""
@@ -74,7 +74,6 @@ class MainWindow(QMainWindow):
 
         self.analog_output_view = AnalogOutputView()
 
-        # NEW: MODBUS RTU & TCP/IP VIEW
         self.modbus_view = ModbusView()
 
         # -------------------------------------------------
@@ -105,7 +104,6 @@ class MainWindow(QMainWindow):
             self.analog_output_view
         )
 
-        # NEW: ADD MODBUS VIEW TO STACK
         self.stack.addWidget(
             self.modbus_view
         )
