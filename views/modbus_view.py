@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QFrame,
     QPlainTextEdit,
+    QDialog,
 )
 
 
@@ -365,17 +366,10 @@ class ModbusView(QWidget):
         slave_id = QLineEdit("1")
         slave_id.setFixedHeight(36)
 
-        # COM Port selection box.
-        com_port_label = QLabel("COM Port")
-        com_port_label.setObjectName("smallLabel")
-
+        # Keep COM Port as an internal connection value; selection is done in the CONNECT popup.
         com_port = QComboBox()
-        com_port.setFixedHeight(36)
-        com_port.setPlaceholderText("Select COM Port")
-        com_port.setVisible(True)
-        com_port_label.setVisible(True)
+        com_port.setVisible(False)
 
-        self.com_port_label = com_port_label
         self.com_port = com_port
 
         valid_ids = QLabel("Valid Slave IDs: 1 to 63")
@@ -518,16 +512,13 @@ class ModbusView(QWidget):
         left_layout.addWidget(rtu_title)
         left_layout.addWidget(slave_label)
         left_layout.addWidget(slave_id)
-        left_layout.addWidget(com_port_label)
-        left_layout.addWidget(com_port)
         left_layout.addWidget(valid_ids)
         left_layout.addWidget(baud_label)
         left_layout.addWidget(baud)
         left_layout.addLayout(apply_row)
         left_layout.addSpacing(8)
         left_layout.addLayout(terminal_row)
-        left_layout.addWidget(terminal)
-        # Do not add a stretch here; keep all controls visible.
+        left_layout.addWidget(terminal, 1)
 
         # ---------------------------------------------------------
         # RIGHT TCP/IP PANEL
@@ -553,7 +544,8 @@ class ModbusView(QWidget):
         subnet_label = QLabel("Subnet Mask")
         subnet_label.setObjectName("smallLabel")
 
-        subnet = QLineEdit("255.255.255.0")
+        subnet = QLineEdit()
+        subnet.setPlaceholderText("255.255.255.0")
         subnet.setFixedHeight(40)
 
         port_label = QLabel("TCP Port")
@@ -725,6 +717,61 @@ class ModbusView(QWidget):
         scrollbar = self.terminal_message.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 
+    def show_com_port_popup(self):
+        ports = [port.device for port in list_ports.comports()]
+
+        if not ports:
+            self.add_terminal_message("COM Port not connected")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("COM Port")
+        dialog.setFixedSize(360, 190)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+
+        title = QLabel("Select COM Port")
+        title.setFont(QFont("Cambria", 16))
+        layout.addWidget(title)
+
+        port_box = QComboBox()
+        port_box.addItems(ports)
+        port_box.setFont(QFont("Cambria", 16))
+        port_box.setFixedHeight(40)
+        layout.addWidget(port_box)
+
+        button_row = QHBoxLayout()
+        connect_button = QPushButton("CONNECT")
+        cancel_button = QPushButton("CANCEL")
+
+        for button in (connect_button, cancel_button):
+            button.setFont(QFont("Cambria", 16))
+            button.setFixedHeight(38)
+
+        button_row.addWidget(connect_button)
+        button_row.addWidget(cancel_button)
+        layout.addLayout(button_row)
+
+        def connect_selected():
+            selected_port = port_box.currentText().strip()
+            if not selected_port:
+                dialog.reject()
+                self.add_terminal_message("COM Port not connected")
+                return
+            self._com_port.setCurrentText(selected_port)
+            self._status.setText("● Connected")
+            self._connect_button.setText("DISCONNECT")
+            self.add_terminal_message("Connected successfully")
+            self.add_terminal_message(f"COM Port connected: {selected_port}")
+            self.add_terminal_message(f"Protocol: {self._protocol.currentText()}")
+            dialog.accept()
+
+        connect_button.clicked.connect(connect_selected)
+        cancel_button.clicked.connect(dialog.reject)
+        dialog.exec()
+
     def handle_connect(self):
         if self._connect_button.text() == "DISCONNECT":
             self._status.setText("● Not Connected")
@@ -732,26 +779,7 @@ class ModbusView(QWidget):
             self.add_terminal_message("Disconnected")
             return
 
-        if self._com_port.count() == 0:
-            self._status.setText("● Not Connected")
-            self._connect_button.setText("CONNECT")
-            self.add_terminal_message("COM Port not connected")
-            return
-
-        selected_port = self._com_port.currentText().strip()
-        if not selected_port:
-            self._status.setText("● Not Connected")
-            self._connect_button.setText("CONNECT")
-            self.add_terminal_message("COM Port not connected")
-            return
-
-        self._status.setText("● Connected")
-        self._connect_button.setText("DISCONNECT")
-        self.add_terminal_message("Connected successfully")
-        self.add_terminal_message(f"COM Port connected: {selected_port}")
-        self.add_terminal_message(
-            f"Protocol: {self._protocol.currentText()}"
-        )
+        self.show_com_port_popup()
 
     def handle_apply_rtu(self):
         # RTU settings can only be applied after a COM port is connected.
@@ -925,8 +953,5 @@ class ModbusView(QWidget):
 
         self.com_port.blockSignals(False)
 
-        # Always show the COM Port box so the user can manually select
-        # any currently connected COM port.
-        self.com_port_label.setVisible(True)
-        self.com_port.setVisible(True)
-
+        # COM Port selection is handled from the CONNECT popup.
+        self.com_port.setVisible(False)

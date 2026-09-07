@@ -1,7 +1,7 @@
 ﻿import os
 
 from PySide6.QtCore import Qt, Signal, QUrl
-from PySide6.QtGui import QPainter, QPen, QPixmap, QDesktopServices
+from PySide6.QtGui import QPainter, QPixmap, QDesktopServices
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -111,7 +111,7 @@ class PortfolioView(QWidget):
                 color: #3C93A0;
                 background: transparent;
                 font-family: Cambria;
-                font-size: 23px;
+                font-size: 18px;
             }
         """)
 
@@ -201,7 +201,7 @@ class PortfolioView(QWidget):
 
         # Page-2 footer outside the blue card.
         footer_row = QHBoxLayout()
-        footer_row.setContentsMargins(0, 0, 18, 8)
+        footer_row.setContentsMargins(0, 0, 18, 0)
         footer_row.addStretch()
 
         footer_text = QVBoxLayout()
@@ -231,9 +231,10 @@ class PortfolioView(QWidget):
         footer_text.addWidget(contact_us)
 
         footer_row.addLayout(footer_text)
-        root.addLayout(footer_row)
 
+        # Push footer to the bottom.
         root.addStretch()
+        root.addLayout(footer_row)
 
         # Navigation.
         self.digital_input_button.clicked.connect(
