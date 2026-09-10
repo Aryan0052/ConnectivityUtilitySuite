@@ -83,6 +83,19 @@ class ModbusView(QWidget):
     def __init__(self):
         super().__init__()
 
+        self._serial_connection = None
+        self._tcp_apply_pending = False
+        self._tcp_apply_buffer = bytearray()
+        self._tcp_apply_timer = QTimer(self)
+        self._tcp_apply_timer.timeout.connect(self._check_tcp_apply_response)
+        self._tcp_apply_elapsed = 0
+
+        self._refresh_pending = False
+        self._refresh_buffer = bytearray()
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.timeout.connect(self._check_refresh_response)
+        self._refresh_elapsed = 0
+
         self.setStyleSheet("""
             QWidget {
                 background: #F5FAEF;
@@ -296,7 +309,7 @@ class ModbusView(QWidget):
 
         back = BackButton()
         back.setObjectName("backButton")
-        back.clicked.connect(self.back_clicked.emit)
+        back.clicked.connect(self.handle_back)
 
         header_layout.addWidget(back)
 
@@ -709,6 +722,39 @@ class ModbusView(QWidget):
         apply_port1.clicked.connect(self.handle_apply_port1)
         apply_port2.clicked.connect(self.handle_apply_port2)
 
+    def handle_back(self):
+        self._tcp_apply_pending = False
+        self._tcp_apply_timer.stop()
+        self._tcp_apply_buffer.clear()
+
+        self._refresh_pending = False
+        self._refresh_timer.stop()
+        self._refresh_buffer.clear()
+
+        if self._serial_connection is not None:
+            try:
+                self._serial_connection.close()
+            except Exception:
+                pass
+            finally:
+                self._serial_connection = None
+
+        self._connect_button.setText("CONNECT")
+        self._status.setText("● Not Connected")
+
+        self._slave_id.setText("1")
+        self._baud.setCurrentText("9600")
+        self._ip_address.clear()
+        self._subnet.clear()
+        self._tcp_port.setText("502")
+        self._port1.setCurrentText("9600")
+        self._port2.setCurrentText("9600")
+
+        self.terminal_messages = ["Device Terminal Ready"]
+        self.terminal_message.setPlainText("Device Terminal Ready")
+
+        self.back_clicked.emit()
+
     def add_terminal_message(self, message):
         self.terminal_messages.append(str(message))
         self.terminal_message.setPlainText(
@@ -721,7 +767,7 @@ class ModbusView(QWidget):
         ports = [port.device for port in list_ports.comports()]
 
         if not ports:
-            self.add_terminal_message("COM Port not connected")
+            self._status.setText("● COM Port Not Found")
             return
 
         dialog = QDialog(self)
@@ -758,15 +804,30 @@ class ModbusView(QWidget):
             selected_port = port_box.currentText().strip()
             if not selected_port:
                 dialog.reject()
-                self.add_terminal_message("COM Port not connected")
+                self._status.setText("● COM Port Not Found")
                 return
+
             self._com_port.setCurrentText(selected_port)
-            self._status.setText("● Connected")
-            self._connect_button.setText("DISCONNECT")
-            self.add_terminal_message("Connected successfully")
-            self.add_terminal_message(f"COM Port connected: {selected_port}")
-            self.add_terminal_message(f"Protocol: {self._protocol.currentText()}")
-            dialog.accept()
+
+            try:
+                import serial
+
+                self._serial_connection = serial.Serial(
+                    selected_port,
+                    int(self._baud.currentText()),
+                    timeout=1
+                )
+                self._status.setText("● Connected")
+                self._status.setStyleSheet(
+                    "color: #00C928; font-weight: bold; font-size: 16px;"
+                )
+                self._connect_button.setText("DISCONNECT")
+                dialog.accept()
+            except Exception:
+                self._serial_connection = None
+                self._status.setText("● Connection Error")
+                self._connect_button.setText("CONNECT")
+                dialog.reject()
 
         connect_button.clicked.connect(connect_selected)
         cancel_button.clicked.connect(dialog.reject)
@@ -774,9 +835,25 @@ class ModbusView(QWidget):
 
     def handle_connect(self):
         if self._connect_button.text() == "DISCONNECT":
+            self._tcp_apply_pending = False
+            self._tcp_apply_timer.stop()
+            self._tcp_apply_buffer.clear()
+
+            self._refresh_pending = False
+            self._refresh_timer.stop()
+            self._refresh_buffer.clear()
+
+            try:
+                if self._serial_connection is not None:
+                    self._serial_connection.close()
+            finally:
+                self._serial_connection = None
+
             self._status.setText("● Not Connected")
+            self._status.setStyleSheet(
+                "color: #00C928; font-weight: bold; font-size: 16px;"
+            )
             self._connect_button.setText("CONNECT")
-            self.add_terminal_message("Disconnected")
             return
 
         self.show_com_port_popup()
@@ -787,7 +864,7 @@ class ModbusView(QWidget):
             self._connect_button.text() != "DISCONNECT"
             or not self._com_port.currentText().strip()
         ):
-            self.add_terminal_message("COM Port not connected")
+            self._status.setText("● COM Port not connected")
             return
 
         slave_text = self._slave_id.text().strip()
@@ -795,139 +872,581 @@ class ModbusView(QWidget):
         try:
             slave_id = int(slave_text)
         except ValueError:
-            self.add_terminal_message("Slave ID must be 1 to 63")
+            self._status.setText("● Slave ID must be 1 to 63")
             return
 
         if not 1 <= slave_id <= 63:
-            self.add_terminal_message("Slave ID must be 1 to 63")
+            self._status.setText("● Slave ID must be 1 to 63")
             return
 
-        self.add_terminal_message(
-            f"RTU settings applied | Slave ID: {slave_id} | "
-            f"Baud Rate: {self._baud.currentText()}"
-        )
+        baud_rate = self._baud.currentText()
+        command = f"SID={slave_id},MBD_BAUD={baud_rate}\n"
 
-        self.add_terminal_message(
-            f"COM Port: {self._com_port.currentText()}"
-        )
+        try:
+            if (
+                self._serial_connection is None
+                or not self._serial_connection.is_open
+            ):
+                self._status.setText("● COM Port not connected")
+                return
+
+            self._serial_connection.reset_input_buffer()
+            self._serial_connection.write(command.encode("ascii"))
+            self._serial_connection.flush()
+
+            response_buffer = bytearray()
+            elapsed = [0]
+
+            def set_failed():
+                self._status.setText("● RTU Settings Not Applied")
+                self._status.setStyleSheet(
+                    "color: #D00000; font-weight: bold; font-size: 16px;"
+                )
+
+            def check_rtu_response():
+                if (
+                    self._serial_connection is None
+                    or not self._serial_connection.is_open
+                ):
+                    set_failed()
+                    return
+
+                try:
+                    waiting = self._serial_connection.in_waiting
+                    if waiting > 0:
+                        response_buffer.extend(
+                            self._serial_connection.read(waiting)
+                        )
+
+                    # Wait for the complete device response. Serial data
+                    # may arrive in multiple reads/chunks.
+                    if b"\r\n" in response_buffer:
+                        response, _, remaining = response_buffer.partition(
+                            b"\r\n"
+                        )
+                        complete_response = response + b"\r\n"
+                        response_buffer.clear()
+                        response_buffer.extend(remaining)
+
+                        # The actual RTU APPLY confirmation from the device is:
+                        # OK:Settings Updated\r\n
+                        if complete_response == b"OK:Settings Updated\r\n":
+                            self.add_terminal_message("OK: Settings Applied")
+                            self._status.setText("● RTU Settings Applied")
+                            self._status.setStyleSheet(
+                                "color: #00C928; font-weight: bold; font-size: 16px;"
+                            )
+                            return
+
+                        set_failed()
+                        return
+
+                    elapsed[0] += 20
+                    if elapsed[0] >= 2000:
+                        set_failed()
+                        return
+
+                    QTimer.singleShot(20, check_rtu_response)
+
+                except Exception:
+                    set_failed()
+
+            QTimer.singleShot(20, check_rtu_response)
+
+        except Exception:
+            self._status.setText("● RTU Settings Not Applied")
+            self._status.setStyleSheet(
+                "color: #D00000; font-weight: bold; font-size: 16px;"
+            )
+
 
     def handle_apply_tcp(self):
         ip_text = self._ip_address.text().strip()
         subnet_text = self._subnet.text().strip()
         tcp_port_text = self._tcp_port.text().strip()
 
-        # Validate IPv4 address.
         try:
             ip_address(ip_text)
         except ValueError:
-            self.add_terminal_message("Invalid IP Address")
+            self._status.setText("● Invalid IP Address")
             return
 
-        # Validate subnet mask as a valid IPv4 netmask.
         try:
             ip_network(f"0.0.0.0/{subnet_text}", strict=False)
         except ValueError:
-            self.add_terminal_message("Invalid Subnet Mask")
+            self._status.setText("● Invalid Subnet Mask")
             return
 
         try:
             tcp_port = int(tcp_port_text)
         except ValueError:
-            self.add_terminal_message("TCP Port must be between 1 and 65535")
+            self._status.setText("● TCP Port must be between 1 and 65535")
             return
 
         if not 1 <= tcp_port <= 65535:
-            self.add_terminal_message("TCP Port must be between 1 and 65535")
+            self._status.setText("● TCP Port must be between 1 and 65535")
+            return
+
+        if (
+            self._connect_button.text() != "DISCONNECT"
+            or self._serial_connection is None
+            or not self._serial_connection.is_open
+        ):
+            self._status.setText("● COM Port not connected")
+            self._status.setStyleSheet(
+                "color: #D00000; font-weight: bold; font-size: 16px;"
+            )
+            return
+
+        if self._tcp_apply_pending:
             return
 
         command = (
-            f"ETH,IP={self._ip_address.text().strip()},"
-            f"MASK={self._subnet.text().strip()},"
+            f"ETH,IP={ip_text},"
+            f"MASK={subnet_text},"
             f"PORT={tcp_port}\n"
         )
 
-        # Send the TCP/IP command to the selected COM port when connected.
-        if (
-            self._connect_button.text() == "DISCONNECT"
-            and self._com_port.currentText().strip()
-        ):
-            try:
-                import serial
+        try:
+            self._serial_connection.reset_input_buffer()
+            self._tcp_apply_buffer.clear()
+            self._serial_connection.write(command.encode("ascii"))
+            self._serial_connection.flush()
 
-                with serial.Serial(
-                    self._com_port.currentText().strip(),
-                    int(self._baud.currentText()),
-                    timeout=1
-                ) as ser:
-                    ser.write(command.encode("ascii"))
-                self.add_terminal_message("Settings applied")
-            except Exception as exc:
-                self.add_terminal_message(f"Failed to send settings: {exc}")
-        else:
-            self.add_terminal_message("COM Port not connected")
+            self._tcp_apply_pending = True
+            self._tcp_apply_elapsed = 0
+            self._tcp_apply_timer.start(20)
+        except Exception as exc:
+            self._tcp_apply_pending = False
+            self._tcp_apply_timer.stop()
+            self._status.setText("● TCP/IP Configuration failed")
+            self._status.setStyleSheet(
+                "color: #D00000; font-weight: bold; font-size: 16px;"
+            )
+
+    def _check_tcp_apply_response(self):
+        if not self._tcp_apply_pending:
+            self._tcp_apply_timer.stop()
+            return
+
+        if (
+            self._serial_connection is None
+            or not self._serial_connection.is_open
+        ):
+            # Disconnect must cancel a pending APPLY, not report a fake failure.
+            self._tcp_apply_pending = False
+            self._tcp_apply_timer.stop()
+            self._tcp_apply_buffer.clear()
+            return
+
+        try:
+            waiting = self._serial_connection.in_waiting
+
+            if waiting > 0:
+                self._tcp_apply_buffer.extend(
+                    self._serial_connection.read(waiting)
+                )
+
+            buffer_text = self._tcp_apply_buffer.decode(
+                "ascii", errors="replace"
+            )
+
+            # Device confirmation can arrive in chunks and does not have to
+            # be received in exactly one serial read.
+            if "OK:ETH" in buffer_text:
+                self._tcp_apply_pending = False
+                self._tcp_apply_timer.stop()
+                self._tcp_apply_buffer.clear()
+
+                self.add_terminal_message("OK:ETH")
+                self._status.setText("● TCP/IP Configuration applied")
+                self._status.setStyleSheet(
+                    "color: #00C928; font-weight: bold; font-size: 16px;"
+                )
+                return
+
+            if "ERR:CMD" in buffer_text:
+                self._tcp_apply_pending = False
+                self._tcp_apply_timer.stop()
+                self._tcp_apply_buffer.clear()
+
+                self._status.setText("● TCP/IP Configuration failed")
+                self._status.setStyleSheet(
+                    "color: #D00000; font-weight: bold; font-size: 16px;"
+                )
+                return
+
+            # Also accept a complete non-empty device response.
+            if b"\n" in self._tcp_apply_buffer:
+                response_bytes, _, remaining = (
+                    self._tcp_apply_buffer.partition(b"\n")
+                )
+                self._tcp_apply_buffer = bytearray(remaining)
+                response = response_bytes.decode(
+                    "ascii", errors="replace"
+                ).strip()
+
+                if response:
+                    self._tcp_apply_pending = False
+                    self._tcp_apply_timer.stop()
+
+                    self._status.setText("● TCP/IP Configuration failed")
+                    self._status.setStyleSheet(
+                        "color: #D00000; font-weight: bold; font-size: 16px;"
+                    )
+                    return
+
+            # Wait only 2 seconds for the device response.
+            self._tcp_apply_elapsed += 20
+            if self._tcp_apply_elapsed >= 2000:
+                self._tcp_apply_pending = False
+                self._tcp_apply_timer.stop()
+                self._tcp_apply_buffer.clear()
+
+                self._status.setText("● TCP/IP Configuration failed")
+                self._status.setStyleSheet(
+                    "color: #D00000; font-weight: bold; font-size: 16px;"
+                )
+
+        except Exception as exc:
+            self._tcp_apply_pending = False
+            self._tcp_apply_timer.stop()
+            self._tcp_apply_buffer.clear()
+            self._status.setText("● TCP/IP Configuration failed")
+            self._status.setStyleSheet(
+                "color: #D00000; font-weight: bold; font-size: 16px;"
+            )
 
     def handle_apply_port1(self):
-        command = f"UART,CH=1,BAUD={self._port1.currentText()}\n"
+        command = f"UART,CH=1,BAUD={self._port1.currentText()}\\n"
 
         if (
-            self._connect_button.text() == "DISCONNECT"
-            and self._com_port.currentText().strip()
+            self._connect_button.text() != "DISCONNECT"
+            or self._serial_connection is None
+            or not self._serial_connection.is_open
         ):
-            try:
-                import serial
+            self._status.setText("● COM Port not connected")
+            self._status.setStyleSheet(
+                "color: #D00000; font-weight: bold; font-size: 16px;"
+            )
+            return
 
-                with serial.Serial(
-                    self._com_port.currentText().strip(),
-                    int(self._baud.currentText()),
-                    timeout=1
-                ) as ser:
-                    ser.write(command.encode("ascii"))
-                self.add_terminal_message("Settings applied")
-            except Exception as exc:
-                self.add_terminal_message(f"Failed to send settings: {exc}")
-        else:
-            self.add_terminal_message("COM Port not connected")
+        try:
+            self._serial_connection.reset_input_buffer()
+            self._serial_connection.write(command.encode("ascii"))
+            self._serial_connection.flush()
+
+            response_buffer = bytearray()
+            elapsed = [0]
+
+            def set_port1_failed():
+                self._status.setText("● Port 1 Settings Not Applied")
+                self._status.setStyleSheet(
+                    "color: #D00000; font-weight: bold; font-size: 16px;"
+                )
+
+            def check_port1_response():
+                if (
+                    self._serial_connection is None
+                    or not self._serial_connection.is_open
+                ):
+                    set_port1_failed()
+                    return
+
+                try:
+                    waiting = self._serial_connection.in_waiting
+                    if waiting > 0:
+                        response_buffer.extend(
+                            self._serial_connection.read(waiting)
+                        )
+
+                    # RX may arrive in multiple chunks.
+                    if b"OK:ETH" in response_buffer:
+                        self.add_terminal_message("OK:ETH")
+                        self._status.setText("● Port 1 Settings Applied")
+                        self._status.setStyleSheet(
+                            "color: #00C928; font-weight: bold; font-size: 16px;"
+                        )
+                        return
+
+                    if b"\\n" in response_buffer:
+                        set_port1_failed()
+                        return
+
+                    elapsed[0] += 20
+                    if elapsed[0] >= 2000:
+                        set_port1_failed()
+                        return
+
+                    QTimer.singleShot(20, check_port1_response)
+
+                except Exception:
+                    set_port1_failed()
+
+            QTimer.singleShot(20, check_port1_response)
+
+        except Exception:
+            set_port1_failed()
 
     def handle_apply_port2(self):
-        command = f"UART,CH=2,BAUD={self._port2.currentText()}\n"
+        command = f"UART,CH=2,BAUD={self._port2.currentText()}\\n"
 
         if (
-            self._connect_button.text() == "DISCONNECT"
-            and self._com_port.currentText().strip()
+            self._connect_button.text() != "DISCONNECT"
+            or self._serial_connection is None
+            or not self._serial_connection.is_open
         ):
-            try:
-                import serial
+            self._status.setText("● COM Port not connected")
+            self._status.setStyleSheet(
+                "color: #D00000; font-weight: bold; font-size: 16px;"
+            )
+            return
 
-                with serial.Serial(
-                    self._com_port.currentText().strip(),
-                    int(self._baud.currentText()),
-                    timeout=1
-                ) as ser:
-                    ser.write(command.encode("ascii"))
-                self.add_terminal_message("Settings applied")
-            except Exception as exc:
-                self.add_terminal_message(f"Failed to send settings: {exc}")
-        else:
-            self.add_terminal_message("COM Port not connected")
+        try:
+            self._serial_connection.reset_input_buffer()
+            self._serial_connection.write(command.encode("ascii"))
+            self._serial_connection.flush()
+
+            response_buffer = bytearray()
+            elapsed = [0]
+
+            def set_port2_failed():
+                self._status.setText("● Port 2 Settings Not Applied")
+                self._status.setStyleSheet(
+                    "color: #D00000; font-weight: bold; font-size: 16px;"
+                )
+
+            def check_port2_response():
+                if (
+                    self._serial_connection is None
+                    or not self._serial_connection.is_open
+                ):
+                    set_port2_failed()
+                    return
+
+                try:
+                    waiting = self._serial_connection.in_waiting
+                    if waiting > 0:
+                        response_buffer.extend(
+                            self._serial_connection.read(waiting)
+                        )
+
+                    # RX may arrive in multiple chunks.
+                    if b"OK:ETH" in response_buffer:
+                        self.add_terminal_message("OK:ETH")
+                        self._status.setText("● Port 2 Settings Applied")
+                        self._status.setStyleSheet(
+                            "color: #00C928; font-weight: bold; font-size: 16px;"
+                        )
+                        return
+
+                    if b"\\n" in response_buffer:
+                        set_port2_failed()
+                        return
+
+                    elapsed[0] += 20
+                    if elapsed[0] >= 2000:
+                        set_port2_failed()
+                        return
+
+                    QTimer.singleShot(20, check_port2_response)
+
+                except Exception:
+                    set_port2_failed()
+
+            QTimer.singleShot(20, check_port2_response)
+
+        except Exception:
+            set_port2_failed()
 
     def handle_refresh(self):
-        self.refresh_com_ports()
+        if (
+            self._serial_connection is None
+            or not self._serial_connection.is_open
+        ):
+            self._refresh_pending = False
+            self._refresh_timer.stop()
+            self._refresh_buffer.clear()
+            self._status.setText("● COM Port Not Connected")
+            return
 
-        self.terminal_messages.clear()
-        self.terminal_message.setPlainText("Device Terminal Ready")
+        if self._refresh_pending:
+            return
 
-        ports = [
-            self._com_port.itemText(i)
-            for i in range(self._com_port.count())
-        ]
+        try:
+            self._serial_connection.reset_input_buffer()
+            self._refresh_buffer.clear()
 
-        if ports:
-            self.add_terminal_message(
-                "Refresh completed | COM Port detected: " + ", ".join(ports)
+            self._serial_connection.write(b"GETCFG\n")
+            self._serial_connection.flush()
+
+            self._refresh_pending = True
+            self._refresh_elapsed = 0
+            self._refresh_timer.start(20)
+        except Exception:
+            self._refresh_pending = False
+            self._refresh_timer.stop()
+            self._refresh_buffer.clear()
+            self._status.setText("● Refresh Error")
+            self._status.setStyleSheet(
+                "color: #D00000; font-weight: bold; font-size: 16px;"
             )
-        else:
-            self.add_terminal_message(
-                "Refresh completed | COM Port not connected"
+
+    def _check_refresh_response(self):
+        if not self._refresh_pending:
+            self._refresh_timer.stop()
+            return
+
+        if (
+            self._serial_connection is None
+            or not self._serial_connection.is_open
+        ):
+            self._refresh_pending = False
+            self._refresh_timer.stop()
+            self._refresh_buffer.clear()
+            self._status.setText("● COM Port Not Connected")
+            return
+
+        try:
+            waiting = self._serial_connection.in_waiting
+
+            if waiting > 0:
+                self._refresh_buffer.extend(
+                    self._serial_connection.read(waiting)
+                )
+
+            if b"\n" in self._refresh_buffer:
+                response_bytes, _, remaining = (
+                    self._refresh_buffer.partition(b"\n")
+                )
+                self._refresh_buffer = bytearray(remaining)
+
+                response = response_bytes.decode(
+                    "ascii", errors="replace"
+                ).strip()
+
+                if response:
+                    # Keep the actual device RX visible exactly as received.
+                    self.add_terminal_message(response)
+
+                    parts = response.split(",")
+
+                    # TCP/IP GETCFG response:
+                    # IP=...,MASK=...,PORT=...
+                    if len(parts) == 3:
+                        ip_part = parts[0]
+                        mask_part = parts[1]
+                        port_part = parts[2]
+
+                        if (
+                            ip_part.startswith("IP=")
+                            and mask_part.startswith("MASK=")
+                            and port_part.startswith("PORT=")
+                        ):
+                            ip_text = ip_part[3:].strip()
+                            mask_text = mask_part[5:].strip()
+                            port_text = port_part[5:].strip()
+
+                            try:
+                                parsed_ip = ip_address(ip_text)
+                                ip_network(
+                                    f"0.0.0.0/{mask_text}",
+                                    strict=False
+                                )
+                                parsed_port = int(port_text)
+                            except ValueError:
+                                parsed_ip = None
+                                parsed_port = None
+
+                            if (
+                                parsed_ip is not None
+                                and parsed_ip.version == 4
+                                and parsed_port is not None
+                                and 1 <= parsed_port <= 65535
+                            ):
+                                self._ip_address.setText(ip_text)
+                                self._subnet.setText(mask_text)
+                                self._tcp_port.setText(port_text)
+
+                                self._refresh_pending = False
+                                self._refresh_timer.stop()
+                                self._refresh_buffer.clear()
+                                self._status.setText(
+                                    "● Configuration Refreshed"
+                                )
+                                self._status.setStyleSheet(
+                                    "color: #00C928; font-weight: bold; "
+                                    "font-size: 16px;"
+                                )
+                                return
+
+                    # RTU GETCFG response from the device:
+                    # SID=...,BAUD=...
+                    if len(parts) == 2:
+                        sid_part = parts[0]
+                        baud_part = parts[1]
+
+                        if (
+                            sid_part.startswith("SID=")
+                            and baud_part.startswith("BAUD=")
+                        ):
+                            slave_text = sid_part[4:].strip()
+                            baud_text = baud_part[5:].strip()
+
+                            try:
+                                parsed_slave_id = int(slave_text)
+                                parsed_baud = int(baud_text)
+                            except ValueError:
+                                parsed_slave_id = None
+                                parsed_baud = None
+
+                            if (
+                                parsed_slave_id is not None
+                                and 1 <= parsed_slave_id <= 63
+                                and parsed_baud is not None
+                                and self._baud.findText(baud_text) >= 0
+                            ):
+                                self._slave_id.setText(slave_text)
+                                self._baud.setCurrentText(baud_text)
+
+                                self._refresh_pending = False
+                                self._refresh_timer.stop()
+                                self._refresh_buffer.clear()
+                                self._status.setText(
+                                    "● Configuration Refreshed"
+                                )
+                                self._status.setStyleSheet(
+                                    "color: #00C928; font-weight: bold; "
+                                    "font-size: 16px;"
+                                )
+                                return
+
+                    self._refresh_pending = False
+                    self._refresh_timer.stop()
+                    self._refresh_buffer.clear()
+                    self._status.setText("● Refresh Error")
+                    self._status.setStyleSheet(
+                        "color: #D00000; font-weight: bold; font-size: 16px;"
+                    )
+                    return
+
+            self._refresh_elapsed += 20
+            if self._refresh_elapsed >= 2000:
+                self._refresh_pending = False
+                self._refresh_timer.stop()
+                self._refresh_buffer.clear()
+                self._status.setText("● Refresh Error")
+                self._status.setStyleSheet(
+                    "color: #D00000; font-weight: bold; font-size: 16px;"
+                )
+
+        except Exception:
+            self._refresh_pending = False
+            self._refresh_timer.stop()
+            self._refresh_buffer.clear()
+            self._status.setText("● Refresh Error")
+            self._status.setStyleSheet(
+                "color: #D00000; font-weight: bold; font-size: 16px;"
             )
 
     def refresh_com_ports(self):
