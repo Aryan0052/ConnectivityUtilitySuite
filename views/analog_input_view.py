@@ -1,7 +1,9 @@
 ﻿import os
 
-from PySide6.QtCore import Signal, Qt, QPoint
+from PySide6.QtCore import Signal, Qt, QPoint, QTimer, QEvent
 from PySide6.QtGui import QFont, QPixmap, QPainter, QPen
+from serial.tools import list_ports
+
 from PySide6.QtWidgets import (
     QWidget,
     QHBoxLayout,
@@ -12,6 +14,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QLineEdit,
     QFrame,
+    QPlainTextEdit,
 )
 
 
@@ -78,6 +81,21 @@ class AnalogInputView(QWidget):
 
     def __init__(self):
         super().__init__()
+
+        self._serial_connection = None
+        self._apply_pending = False
+        self._apply_buffer = bytearray()
+        self._apply_timer = QTimer(self)
+        self._apply_timer.timeout.connect(self._check_apply_response)
+        self._apply_elapsed = 0
+
+        self._refresh_pending = False
+        self._refresh_buffer = bytearray()
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.timeout.connect(self._check_refresh_response)
+        self._refresh_elapsed = 0
+
+        self.terminal_messages = ["Device Terminal Ready"]
 
         self.setStyleSheet("""
             QWidget {
@@ -473,10 +491,12 @@ class AnalogInputView(QWidget):
 
         left_layout.addLayout(terminal_header)
 
-        terminal = QLineEdit()
-        terminal.setReadOnly(True)
-        terminal.setFixedHeight(76)
-        left_layout.addWidget(terminal)
+        self.terminal_message = QPlainTextEdit()
+        self.terminal_message.setReadOnly(True)
+        self.terminal_message.setFixedHeight(180)
+        self.terminal_message.setFont(QFont("Cambria", 12))
+        self.terminal_message.setPlainText("Device Terminal Ready")
+        left_layout.addWidget(self.terminal_message)
 
         left_layout.addStretch()
 
@@ -495,7 +515,119 @@ class AnalogInputView(QWidget):
         )
         right_layout.setSpacing(0)
 
-        # Right panel intentionally blank.
+        # ---------------------------------------------------------
+        # ANALOG INPUT CHANNELS
+        # ---------------------------------------------------------
+        channel_title = QLabel("Analog Input Channel")
+        channel_title.setObjectName("channelTitle")
+        channel_title.setAlignment(Qt.AlignCenter)
+        right_layout.addWidget(channel_title)
+        right_layout.addSpacing(10)
+
+        self._channel_selectors = []
+        self._channel_rows = []
+
+        for channel in range(1, 9):
+            channel_box = QComboBox()
+            channel_box.setObjectName("channelButton")
+            channel_box.addItem(f"Analog Input Channel - {channel}")
+            channel_box.setCurrentIndex(0)
+            channel_box.setStyleSheet("font-size: 14px;")
+            channel_box.setFixedSize(210, 30)
+            channel_box.installEventFilter(self)
+
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.addStretch()
+            row.addWidget(channel_box)
+            row.addStretch()
+            right_layout.addLayout(row)
+            right_layout.addSpacing(7)
+            self._channel_selectors.append(channel_box)
+            self._channel_rows.append(row)
+
+        # ---------------------------------------------------------
+        # CHANNEL CONFIGURATION BOX
+        # ---------------------------------------------------------
+        self._channel_config_frame = QFrame()
+        self._channel_config_frame.setObjectName("configFrame")
+        self._channel_config_frame.setFixedSize(230, 150)
+        self._channel_config_frame.setVisible(False)
+
+        config_layout = QVBoxLayout(self._channel_config_frame)
+        config_layout.setContentsMargins(10, 8, 10, 8)
+        config_layout.setSpacing(7)
+
+        input_row = QHBoxLayout()
+        input_label = QLabel("I/P Type")
+        input_label.setObjectName("smallLabel")
+
+        self._input_type = QComboBox()
+        self._input_type.addItems([
+            "0-50mV",
+            "0-100mV",
+            "0-250mV",
+            "0-5V",
+            "0-10V",
+            "-250mV to +250mV",
+            "-10V to +10V",
+            "4-20mA",
+            "0-20mA",
+        ])
+        self._input_type.setFixedHeight(30)
+        input_row.addWidget(input_label)
+        input_row.addWidget(self._input_type)
+        config_layout.addLayout(input_row)
+
+        min_row = QHBoxLayout()
+        min_label = QLabel("Min off set range")
+        min_label.setObjectName("smallLabel")
+        self._min_offset = QLineEdit()
+        self._min_offset.setFixedWidth(75)
+        self._min_offset.setFixedHeight(28)
+        min_row.addWidget(min_label)
+        min_row.addStretch()
+        min_row.addWidget(self._min_offset)
+        config_layout.addLayout(min_row)
+
+        max_row = QHBoxLayout()
+        max_label = QLabel("Max off set range")
+        max_label.setObjectName("smallLabel")
+        self._max_offset = QLineEdit()
+        self._max_offset.setFixedWidth(75)
+        self._max_offset.setFixedHeight(28)
+        max_row.addWidget(max_label)
+        max_row.addStretch()
+        max_row.addWidget(self._max_offset)
+        config_layout.addLayout(max_row)
+
+        ok_row = QHBoxLayout()
+        ok_row.addStretch()
+        ok_button = QPushButton("OK")
+        ok_button.setObjectName("okButton")
+        ok_button.setFixedSize(45, 28)
+        ok_button.setStyleSheet("""
+            QPushButton {
+                background: #168BA4;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-family: Cambria;
+                font-size: 13px;
+                font-weight: bold;
+            }
+        """)
+        ok_row.addWidget(ok_button)
+        config_layout.addLayout(ok_row)
+
+        config_row = QHBoxLayout()
+        config_row.setContentsMargins(0, 0, 0, 0)
+        config_row.addStretch()
+        config_row.addWidget(self._channel_config_frame)
+        config_row.addStretch()
+        right_layout.addLayout(config_row)
+
+        right_layout.addStretch()
 
         main_layout.addWidget(left_panel)
         main_layout.addWidget(right_panel, 1)
@@ -505,8 +637,432 @@ class AnalogInputView(QWidget):
 
         root.addWidget(main, 1)
 
+        self._status = status
+        self._connect_button = connect
+        self._slave_id = slave_id
+        self._baud = baud
+        self.connect_button = connect
+        self.slave_id = slave_id
+        self.baud_rate = baud
+        self.apply_button = apply_button
+        self.refresh_button = refresh
+        self.back_button = back
 
+        self.back_button.clicked.connect(self.handle_back)
+        self.connect_button.clicked.connect(self.handle_connect)
+        self.apply_button.clicked.connect(self.handle_apply_rtu)
+        self.refresh_button.clicked.connect(self.handle_refresh)
 
+    def add_terminal_message(self, message):
+        self.terminal_messages.append(str(message))
+        self.terminal_message.setPlainText(
+            "\n".join(self.terminal_messages)
+        )
+        scrollbar = self.terminal_message.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
 
+    def show_com_port_popup(self):
+        ports = [port.device for port in list_ports.comports()]
 
+        if not ports:
+            self._status.setText("COM Port Not Found")
+            return
 
+        from PySide6.QtWidgets import QDialog
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("COM Port")
+        dialog.setFixedSize(360, 190)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+
+        title = QLabel("Select COM Port")
+        title.setFont(QFont("Cambria", 16))
+        layout.addWidget(title)
+
+        port_box = QComboBox()
+        port_box.addItems(ports)
+        port_box.setFont(QFont("Cambria", 16))
+        port_box.setFixedHeight(40)
+        layout.addWidget(port_box)
+
+        button_row = QHBoxLayout()
+        connect_button = QPushButton("CONNECT")
+        cancel_button = QPushButton("CANCEL")
+
+        for button in (connect_button, cancel_button):
+            button.setFont(QFont("Cambria", 16))
+            button.setFixedHeight(38)
+
+        button_row.addWidget(connect_button)
+        button_row.addWidget(cancel_button)
+        layout.addLayout(button_row)
+
+        def connect_selected():
+            selected_port = port_box.currentText().strip()
+
+            if not selected_port:
+                dialog.reject()
+                self._status.setText("COM Port Not Found")
+                return
+
+            try:
+                import serial
+
+                self._serial_connection = serial.Serial(
+                    selected_port,
+                    int(self._baud.currentText()),
+                    timeout=1
+                )
+
+                self._status.setText("Connected")
+                self._status.setStyleSheet(
+                    "color: #00C928; font-weight: bold; font-size: 16px;"
+                )
+                self._connect_button.setText("DISCONNECT")
+                dialog.accept()
+
+            except Exception:
+                self._serial_connection = None
+                self._status.setText("Connection Error")
+                self._connect_button.setText("CONNECT")
+                dialog.reject()
+
+        connect_button.clicked.connect(connect_selected)
+        cancel_button.clicked.connect(dialog.reject)
+        dialog.exec()
+
+    def handle_connect(self):
+        if self._connect_button.text() == "DISCONNECT":
+            self._apply_pending = False
+            self._apply_timer.stop()
+            self._apply_buffer.clear()
+
+            self._refresh_pending = False
+            self._refresh_timer.stop()
+            self._refresh_buffer.clear()
+
+            try:
+                if self._serial_connection is not None:
+                    self._serial_connection.close()
+            finally:
+                self._serial_connection = None
+
+            self._status.setText("Not Connected")
+            self._status.setStyleSheet(
+                "color: #10C51F; font-weight: bold; font-size: 16px;"
+            )
+            self._connect_button.setText("CONNECT")
+            return
+
+        self.show_com_port_popup()
+
+    def handle_apply_rtu(self):
+        if (
+            self._connect_button.text() != "DISCONNECT"
+            or self._serial_connection is None
+            or not self._serial_connection.is_open
+        ):
+            self._status.setText("COM Port not connected")
+            return
+
+        slave_text = self._slave_id.text().strip()
+
+        try:
+            slave_id = int(slave_text)
+        except ValueError:
+            self._status.setText("Slave ID must be 1 to 63")
+            return
+
+        if not 1 <= slave_id <= 63:
+            self._status.setText("Slave ID must be 1 to 63")
+            return
+
+        baud_rate = self._baud.currentText()
+        command = f"SID={slave_id},MBD_BAUD={baud_rate}\n"
+
+        if self._apply_pending:
+            return
+
+        try:
+            self._serial_connection.reset_input_buffer()
+            self._apply_buffer.clear()
+            self._serial_connection.write(command.encode("ascii"))
+            self._serial_connection.flush()
+
+            self._apply_pending = True
+            self._apply_elapsed = 0
+            self._apply_timer.start(20)
+
+        except Exception:
+            self._apply_pending = False
+            self._apply_timer.stop()
+            self._apply_buffer.clear()
+            self._status.setText("RTU Settings Not Applied")
+            self._status.setStyleSheet(
+                "color: #D00000; font-weight: bold; font-size: 16px;"
+            )
+
+    def _check_apply_response(self):
+        if not self._apply_pending:
+            self._apply_timer.stop()
+            return
+
+        if (
+            self._serial_connection is None
+            or not self._serial_connection.is_open
+        ):
+            self._apply_pending = False
+            self._apply_timer.stop()
+            self._apply_buffer.clear()
+            return
+
+        try:
+            waiting = self._serial_connection.in_waiting
+
+            if waiting > 0:
+                self._apply_buffer.extend(
+                    self._serial_connection.read(waiting)
+                )
+
+            if b"\r\n" in self._apply_buffer:
+                response, _, remaining = self._apply_buffer.partition(b"\r\n")
+                complete_response = response + b"\r\n"
+                self._apply_buffer = bytearray(remaining)
+
+                if complete_response == b"OK:Settings Updated\r\n":
+                    self._apply_pending = False
+                    self._apply_timer.stop()
+                    self._apply_buffer.clear()
+
+                    self.add_terminal_message("OK: Settings Applied")
+
+                    self._status.setText("RTU Settings Applied")
+                    self._status.setStyleSheet(
+                        "color: #00C928; font-weight: bold; font-size: 16px;"
+                    )
+                    return
+
+                self._apply_pending = False
+                self._apply_timer.stop()
+                self._apply_buffer.clear()
+                self._status.setText("RTU Settings Not Applied")
+                self._status.setStyleSheet(
+                    "color: #D00000; font-weight: bold; font-size: 16px;"
+                )
+                return
+
+            self._apply_elapsed += 20
+
+            if self._apply_elapsed >= 2000:
+                self._apply_pending = False
+                self._apply_timer.stop()
+                self._apply_buffer.clear()
+                self._status.setText("RTU Settings Not Applied")
+                self._status.setStyleSheet(
+                    "color: #D00000; font-weight: bold; font-size: 16px;"
+                )
+
+        except Exception:
+            self._apply_pending = False
+            self._apply_timer.stop()
+            self._apply_buffer.clear()
+            self._status.setText("RTU Settings Not Applied")
+            self._status.setStyleSheet(
+                "color: #D00000; font-weight: bold; font-size: 16px;"
+            )
+
+    def handle_refresh(self):
+        if (
+            self._serial_connection is None
+            or not self._serial_connection.is_open
+        ):
+            self._status.setText("COM Port Not Connected")
+            return
+
+        if self._refresh_pending:
+            return
+
+        try:
+            self._serial_connection.reset_input_buffer()
+            self._refresh_buffer.clear()
+            self._serial_connection.write(b"GETCFG\n")
+            self._serial_connection.flush()
+
+            self._refresh_pending = True
+            self._refresh_elapsed = 0
+            self._refresh_timer.start(20)
+
+        except Exception:
+            self._refresh_pending = False
+            self._refresh_timer.stop()
+            self._refresh_buffer.clear()
+            self._status.setText("Refresh Error")
+            self._status.setStyleSheet(
+                "color: #D00000; font-weight: bold; font-size: 16px;"
+            )
+
+    def _check_refresh_response(self):
+        if not self._refresh_pending:
+            self._refresh_timer.stop()
+            return
+
+        if (
+            self._serial_connection is None
+            or not self._serial_connection.is_open
+        ):
+            self._refresh_pending = False
+            self._refresh_timer.stop()
+            self._refresh_buffer.clear()
+            self._status.setText("COM Port Not Connected")
+            return
+
+        try:
+            waiting = self._serial_connection.in_waiting
+
+            if waiting > 0:
+                self._refresh_buffer.extend(
+                    self._serial_connection.read(waiting)
+                )
+
+            if b"\r\n" in self._refresh_buffer:
+                response_bytes, _, remaining = (
+                    self._refresh_buffer.partition(b"\r\n")
+                )
+                self._refresh_buffer = bytearray(remaining)
+
+                response = (
+                    response_bytes + b"\r\n"
+                ).decode("ascii", errors="replace").strip()
+
+                if response:
+                    self.add_terminal_message(response)
+
+                    parts = response.split(",")
+
+                    if len(parts) == 2:
+                        sid_part, baud_part = parts
+
+                        if (
+                            sid_part.startswith("SID=")
+                            and baud_part.startswith("BAUD=")
+                        ):
+                            slave_text = sid_part[4:].strip()
+                            baud_text = baud_part[5:].strip()
+
+                            try:
+                                parsed_slave_id = int(slave_text)
+                                parsed_baud = int(baud_text)
+                            except ValueError:
+                                parsed_slave_id = None
+                                parsed_baud = None
+
+                            if (
+                                parsed_slave_id is not None
+                                and 1 <= parsed_slave_id <= 63
+                                and parsed_baud is not None
+                                and self._baud.findText(baud_text) >= 0
+                            ):
+                                self._slave_id.setText(slave_text)
+                                self._baud.setCurrentText(baud_text)
+
+                                self._refresh_pending = False
+                                self._refresh_timer.stop()
+                                self._refresh_buffer.clear()
+
+                                self._status.setText(
+                                    "Configuration Refreshed"
+                                )
+                                self._status.setStyleSheet(
+                                    "color: #00C928; font-weight: bold; font-size: 16px;"
+                                )
+                                return
+
+                self._refresh_pending = False
+                self._refresh_timer.stop()
+                self._refresh_buffer.clear()
+                self._status.setText("Refresh Error")
+                self._status.setStyleSheet(
+                    "color: #D00000; font-weight: bold; font-size: 16px;"
+                )
+                return
+
+            self._refresh_elapsed += 20
+
+            if self._refresh_elapsed >= 2000:
+                self._refresh_pending = False
+                self._refresh_timer.stop()
+                self._refresh_buffer.clear()
+                self._status.setText("Refresh Error")
+                self._status.setStyleSheet(
+                    "color: #D00000; font-weight: bold; font-size: 16px;"
+                )
+
+        except Exception:
+            self._refresh_pending = False
+            self._refresh_timer.stop()
+            self._refresh_buffer.clear()
+            self._status.setText("Refresh Error")
+            self._status.setStyleSheet(
+                "color: #D00000; font-weight: bold; font-size: 16px;"
+            )
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.MouseButtonPress and obj in self._channel_selectors:
+            if obj.isVisible() and self._channel_config_frame.isVisible():
+                self.reset_channel_view()
+            else:
+                self.show_channel_config(obj.currentText())
+            return True
+        return super().eventFilter(obj, event)
+
+    def show_channel_config(self, channel_name):
+        selected_box = None
+        for box in self._channel_selectors:
+            if box.currentText() == channel_name:
+                selected_box = box
+                break
+
+        if selected_box is None:
+            return
+
+        # Keep only the selected channel visible.
+        for box in self._channel_selectors:
+            box.setVisible(box is selected_box)
+
+        self._channel_config_frame.setVisible(True)
+
+    def reset_channel_view(self):
+        for box in self._channel_selectors:
+            box.setVisible(True)
+        self._channel_config_frame.setVisible(False)
+
+    def handle_back(self):
+        self._apply_pending = False
+        self._apply_timer.stop()
+        self._apply_buffer.clear()
+
+        self._refresh_pending = False
+        self._refresh_timer.stop()
+        self._refresh_buffer.clear()
+
+        if self._serial_connection is not None:
+            try:
+                self._serial_connection.close()
+            except Exception:
+                pass
+            finally:
+                self._serial_connection = None
+
+        self.reset_channel_view()
+
+        self._connect_button.setText("CONNECT")
+        self._status.setText("Not Connected")
+        self._status.setStyleSheet(
+            "color: #10C51F; font-weight: bold; font-size: 16px;"
+        )
+
+        self.terminal_messages = ["Device Terminal Ready"]
+        self.terminal_message.setPlainText("Device Terminal Ready")

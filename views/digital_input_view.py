@@ -743,8 +743,104 @@ class DigitalInputView(QWidget):
             13
         )
 
-        # Intentionally blank
+        # DIGITAL INPUT CHANNELS
         right_layout.setSpacing(0)
+
+        channel_title = QLabel("Digital Input")
+        channel_title.setObjectName("sectionTitle")
+        channel_title.setAlignment(Qt.AlignCenter)
+        right_layout.addWidget(channel_title)
+        right_layout.addSpacing(25)
+
+        channel_columns = QHBoxLayout()
+        channel_columns.setContentsMargins(20, 0, 20, 0)
+        channel_columns.setSpacing(55)
+
+        left_channels = QVBoxLayout()
+        left_channels.setSpacing(16)
+        right_channels = QVBoxLayout()
+        right_channels.setSpacing(16)
+
+        self._di_buttons = []
+
+        for channel in range(1, 9):
+            row = QHBoxLayout()
+            row.setSpacing(28)
+
+            label = QLabel(f"DI {channel}")
+            label.setObjectName("label")
+            label.setFixedWidth(55)
+
+            button = QPushButton("OFF")
+            button.setCheckable(True)
+            button.setFixedSize(58, 27)
+            button.setCursor(Qt.PointingHandCursor)
+            button.setStyleSheet("""
+                QPushButton {
+                    background: #E00000;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    font-family: Cambria;
+                    font-size: 13px;
+                    font-weight: bold;
+                }
+                QPushButton:checked {
+                    background: #00B52A;
+                    color: white;
+                }
+            """)
+            button.toggled.connect(
+                lambda checked, btn=button: btn.setText("ON" if checked else "OFF")
+            )
+
+            row.addWidget(label)
+            row.addWidget(button)
+            row.addStretch()
+            left_channels.addLayout(row)
+            self._di_buttons.append(button)
+
+        for channel in range(9, 17):
+            row = QHBoxLayout()
+            row.setSpacing(28)
+
+            label = QLabel(f"DI {channel}")
+            label.setObjectName("label")
+            label.setFixedWidth(55)
+
+            button = QPushButton("OFF")
+            button.setCheckable(True)
+            button.setFixedSize(58, 27)
+            button.setCursor(Qt.PointingHandCursor)
+            button.setStyleSheet("""
+                QPushButton {
+                    background: #E00000;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    font-family: Cambria;
+                    font-size: 13px;
+                    font-weight: bold;
+                }
+                QPushButton:checked {
+                    background: #00B52A;
+                    color: white;
+                }
+            """)
+            button.toggled.connect(
+                lambda checked, btn=button: btn.setText("ON" if checked else "OFF")
+            )
+
+            row.addWidget(label)
+            row.addWidget(button)
+            row.addStretch()
+            right_channels.addLayout(row)
+            self._di_buttons.append(button)
+
+        channel_columns.addLayout(left_channels)
+        channel_columns.addLayout(right_channels)
+        right_layout.addLayout(channel_columns)
+        right_layout.addStretch()
 
         content.addWidget(
             left
