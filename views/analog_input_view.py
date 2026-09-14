@@ -1,7 +1,7 @@
 ﻿import os
 
 from PySide6.QtCore import Signal, Qt, QPoint, QTimer, QEvent
-from PySide6.QtGui import QFont, QPixmap, QPainter, QPen
+from PySide6.QtGui import QFont, QPixmap, QPainter, QPen, QIntValidator
 from serial.tools import list_ports
 
 from PySide6.QtWidgets import (
@@ -551,7 +551,7 @@ class AnalogInputView(QWidget):
         # ---------------------------------------------------------
         self._channel_config_frame = QFrame()
         self._channel_config_frame.setObjectName("configFrame")
-        self._channel_config_frame.setFixedSize(230, 150)
+        self._channel_config_frame.setFixedSize(330, 150)
         self._channel_config_frame.setVisible(False)
 
         config_layout = QVBoxLayout(self._channel_config_frame)
@@ -574,39 +574,22 @@ class AnalogInputView(QWidget):
             "4-20mA",
             "0-20mA",
         ])
+        self._input_type.setFixedWidth(175)
         self._input_type.setFixedHeight(30)
+        self._input_type.setStyleSheet("""
+            QComboBox {
+                padding-right: 2px;
+            }
+            QComboBox QAbstractItemView {
+                min-width: 240px;
+            }
+        """)
         input_row.addWidget(input_label)
         input_row.addWidget(self._input_type)
-        config_layout.addLayout(input_row)
-
-        min_row = QHBoxLayout()
-        min_label = QLabel("Min off set range")
-        min_label.setObjectName("smallLabel")
-        self._min_offset = QLineEdit()
-        self._min_offset.setFixedWidth(75)
-        self._min_offset.setFixedHeight(28)
-        min_row.addWidget(min_label)
-        min_row.addStretch()
-        min_row.addWidget(self._min_offset)
-        config_layout.addLayout(min_row)
-
-        max_row = QHBoxLayout()
-        max_label = QLabel("Max off set range")
-        max_label.setObjectName("smallLabel")
-        self._max_offset = QLineEdit()
-        self._max_offset.setFixedWidth(75)
-        self._max_offset.setFixedHeight(28)
-        max_row.addWidget(max_label)
-        max_row.addStretch()
-        max_row.addWidget(self._max_offset)
-        config_layout.addLayout(max_row)
-
-        ok_row = QHBoxLayout()
-        ok_row.addStretch()
-        ok_button = QPushButton("OK")
-        ok_button.setObjectName("okButton")
-        ok_button.setFixedSize(45, 28)
-        ok_button.setStyleSheet("""
+        input_ok = QPushButton("OK")
+        input_ok.setObjectName("okButton")
+        input_ok.setFixedSize(45, 28)
+        input_ok.setStyleSheet("""
             QPushButton {
                 background: #168BA4;
                 color: white;
@@ -617,8 +600,63 @@ class AnalogInputView(QWidget):
                 font-weight: bold;
             }
         """)
-        ok_row.addWidget(ok_button)
-        config_layout.addLayout(ok_row)
+        input_row.addWidget(input_ok)
+        config_layout.addLayout(input_row)
+
+        min_row = QHBoxLayout()
+        min_label = QLabel("Min off set range")
+        min_label.setObjectName("smallLabel")
+        self._min_offset = QLineEdit("-20000")
+        self._min_offset.setFixedWidth(75)
+        self._min_offset.setFixedHeight(28)
+        self._min_offset.setValidator(QIntValidator(-20000, 20000, self))
+        min_row.addWidget(min_label)
+        min_row.addStretch()
+        min_row.addWidget(self._min_offset)
+        min_ok = QPushButton("OK")
+        min_ok.setObjectName("okButton")
+        min_ok.setFixedSize(45, 28)
+        min_ok.setStyleSheet("""
+            QPushButton {
+                background: #168BA4;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-family: Cambria;
+                font-size: 13px;
+                font-weight: bold;
+            }
+        """)
+        min_row.addWidget(min_ok)
+        config_layout.addLayout(min_row)
+
+        max_row = QHBoxLayout()
+        max_label = QLabel("Max off set range")
+        max_label.setObjectName("smallLabel")
+        self._max_offset = QLineEdit("+20000")
+        self._max_offset.setFixedWidth(75)
+        self._max_offset.setFixedHeight(28)
+        self._max_offset.setValidator(QIntValidator(-20000, 20000, self))
+        max_row.addWidget(max_label)
+        max_row.addStretch()
+        max_row.addWidget(self._max_offset)
+        max_ok = QPushButton("OK")
+        max_ok.setObjectName("okButton")
+        max_ok.setFixedSize(45, 28)
+        max_ok.setStyleSheet("""
+            QPushButton {
+                background: #168BA4;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-family: Cambria;
+                font-size: 13px;
+                font-weight: bold;
+            }
+        """)
+        max_row.addWidget(max_ok)
+        config_layout.addLayout(max_row)
+
 
         config_row = QHBoxLayout()
         config_row.setContentsMargins(0, 0, 0, 0)
