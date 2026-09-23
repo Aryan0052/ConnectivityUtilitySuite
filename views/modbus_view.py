@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QPlainTextEdit,
     QDialog,
+    QScrollArea,
 )
 
 
@@ -80,10 +81,24 @@ class ModbusView(QWidget):
 
     back_clicked = Signal()
 
+    def _set_status_color(self, color):
+        self._status.setStyleSheet(
+            f"color: {color}; font-weight: bold; font-size: 16px;"
+        )
+        if hasattr(self, "_status_dot"):
+            self._status_dot.setStyleSheet(
+                f"color: {color}; background: transparent; font-size: 16px;"
+            )
+
     def __init__(self):
         super().__init__()
 
         self._serial_connection = None
+        self._connected_baud_rate = None
+        self._apply_target_baud_rate = None
+        self._apply_baud_timer = QTimer(self)
+        self._apply_baud_timer.setSingleShot(True)
+        self._apply_baud_timer.timeout.connect(self._switch_to_applied_baud)
         self._tcp_apply_pending = False
         self._tcp_apply_buffer = bytearray()
         self._tcp_apply_timer = QTimer(self)
@@ -95,6 +110,12 @@ class ModbusView(QWidget):
         self._refresh_timer = QTimer(self)
         self._refresh_timer.timeout.connect(self._check_refresh_response)
         self._refresh_elapsed = 0
+
+        # Lock each UART APPLY button until its response or 2-second timeout.
+        self._port1_apply_pending = False
+        self._port2_apply_pending = False
+        self._rtu_apply_pending = False
+        self._tcp_apply_pending = False
 
         self.setStyleSheet("""
             QWidget {
@@ -287,7 +308,7 @@ class ModbusView(QWidget):
         """)
 
         subtitle = QLabel("Connectivity Utility Suite")
-        subtitle.setFixedHeight(15)
+        subtitle.setFixedHeight(20)
         subtitle.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         subtitle.setStyleSheet("""
             QLabel {
@@ -474,6 +495,11 @@ class ModbusView(QWidget):
         self.com_port_refresh_timer.timeout.connect(self.refresh_com_ports)
         self.com_port_refresh_timer.start(1000)
         self.refresh_com_ports()
+
+        # Automatically detect when the connected COM port is removed.
+        self._connection_monitor_timer = QTimer(self)
+        self._connection_monitor_timer.timeout.connect(self._check_connection_status)
+        self._connection_monitor_timer.start(500)
 
         terminal_row.addWidget(terminal_title)
         terminal_row.addStretch()
@@ -700,7 +726,27 @@ class ModbusView(QWidget):
         main_layout.addWidget(left_panel)
         main_layout.addWidget(right_panel, 1)
 
-        root.addWidget(main, 1)
+        # Keep the header fixed and make only the main content vertically
+        # scrollable when Windows display scaling makes the content taller
+        # than the available screen area.
+        main_scroll = QScrollArea()
+        main_scroll.setWidgetResizable(True)
+        main_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        main_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        main_scroll.setFrameShape(QFrame.NoFrame)
+        main_scroll.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background: #F5FAEF;
+            }
+            QScrollBar:vertical {
+                width: 12px;
+                margin: 0px;
+            }
+        """)
+        main_scroll.setWidget(main)
+
+        root.addWidget(main_scroll, 1)
 
         # Keep references for UI actions.
         self._status = status
@@ -715,6 +761,11 @@ class ModbusView(QWidget):
         self._port1 = port1
         self._port2 = port2
 
+        self._apply_port1_button = apply_port1
+        self._apply_port2_button = apply_port2
+        self._apply_rtu_button = apply_rtu
+        self._apply_tcp_button = apply_tcp
+
         # Connect every action button after all widgets are created.
         connect.clicked.connect(self.handle_connect)
         apply_rtu.clicked.connect(self.handle_apply_rtu)
@@ -723,6 +774,7 @@ class ModbusView(QWidget):
         apply_port2.clicked.connect(self.handle_apply_port2)
 
     def handle_back(self):
+        self._connection_monitor_timer.stop()
         self._tcp_apply_pending = False
         self._tcp_apply_timer.stop()
         self._tcp_apply_buffer.clear()
@@ -768,6 +820,7 @@ class ModbusView(QWidget):
 
         if not ports:
             self._status.setText("● COM Port Not Found")
+            self._set_status_color("#D00000")
             return
 
         dialog = QDialog(self)
@@ -805,6 +858,7 @@ class ModbusView(QWidget):
             if not selected_port:
                 dialog.reject()
                 self._status.setText("● COM Port Not Found")
+                self._set_status_color("#D00000")
                 return
 
             self._com_port.setCurrentText(selected_port)
@@ -817,15 +871,16 @@ class ModbusView(QWidget):
                     int(self._baud.currentText()),
                     timeout=1
                 )
+                self._connected_baud_rate = int(self._baud.currentText())
                 self._status.setText("● Connected")
-                self._status.setStyleSheet(
-                    "color: #00C928; font-weight: bold; font-size: 16px;"
-                )
+                self._set_status_color("#00C928")
+                self._set_status_color("#00C928")
                 self._connect_button.setText("DISCONNECT")
                 dialog.accept()
             except Exception:
                 self._serial_connection = None
                 self._status.setText("● Connection Error")
+                self._set_status_color("#D00000")
                 self._connect_button.setText("CONNECT")
                 dialog.reject()
 
@@ -839,6 +894,9 @@ class ModbusView(QWidget):
             self._tcp_apply_timer.stop()
             self._tcp_apply_buffer.clear()
 
+            self._apply_baud_timer.stop()
+            self._apply_target_baud_rate = None
+
             self._refresh_pending = False
             self._refresh_timer.stop()
             self._refresh_buffer.clear()
@@ -850,21 +908,23 @@ class ModbusView(QWidget):
                 self._serial_connection = None
 
             self._status.setText("● Not Connected")
-            self._status.setStyleSheet(
-                "color: #00C928; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#00C928")
             self._connect_button.setText("CONNECT")
             return
 
         self.show_com_port_popup()
 
     def handle_apply_rtu(self):
+        if self._rtu_apply_pending:
+            return
+
         # RTU settings can only be applied after a COM port is connected.
         if (
             self._connect_button.text() != "DISCONNECT"
             or not self._com_port.currentText().strip()
         ):
             self._status.setText("● COM Port not connected")
+            self._set_status_color("#D00000")
             return
 
         slave_text = self._slave_id.text().strip()
@@ -873,13 +933,16 @@ class ModbusView(QWidget):
             slave_id = int(slave_text)
         except ValueError:
             self._status.setText("● Slave ID must be 1 to 63")
+            self._set_status_color("#D00000")
             return
 
         if not 1 <= slave_id <= 63:
             self._status.setText("● Slave ID must be 1 to 63")
+            self._set_status_color("#D00000")
             return
 
         baud_rate = self._baud.currentText()
+        target_baud_rate = int(baud_rate)
         command = f"SID={slave_id},MBD_BAUD={baud_rate}\n"
 
         try:
@@ -888,20 +951,30 @@ class ModbusView(QWidget):
                 or not self._serial_connection.is_open
             ):
                 self._status.setText("● COM Port not connected")
+                self._set_status_color("#D00000")
                 return
 
             self._serial_connection.reset_input_buffer()
+            print(f"RTU SETTINGS TX: SID={slave_id}, BAUD={baud_rate}")
             self._serial_connection.write(command.encode("ascii"))
             self._serial_connection.flush()
+
+            self._apply_target_baud_rate = target_baud_rate
+            self._rtu_apply_pending = True
+            self._apply_rtu_button.setEnabled(False)
+
+            if (
+                self._connected_baud_rate is not None
+                and target_baud_rate != self._connected_baud_rate
+            ):
+                self._apply_baud_timer.start(150)
 
             response_buffer = bytearray()
             elapsed = [0]
 
             def set_failed():
                 self._status.setText("● RTU Settings Not Applied")
-                self._status.setStyleSheet(
-                    "color: #D00000; font-weight: bold; font-size: 16px;"
-                )
+                self._set_status_color("#D00000")
 
             def check_rtu_response():
                 if (
@@ -914,9 +987,9 @@ class ModbusView(QWidget):
                 try:
                     waiting = self._serial_connection.in_waiting
                     if waiting > 0:
-                        response_buffer.extend(
-                            self._serial_connection.read(waiting)
-                        )
+                        chunk = self._serial_connection.read(waiting)
+                        print(f"RTU SETTINGS RX: {chunk!r}")
+                        response_buffer.extend(chunk)
 
                     # Wait for the complete device response. Serial data
                     # may arrive in multiple reads/chunks.
@@ -932,33 +1005,65 @@ class ModbusView(QWidget):
                         # OK:Settings Updated\r\n
                         if complete_response == b"OK:Settings Updated\r\n":
                             self.add_terminal_message("OK: Settings Applied")
+                            self._rtu_apply_pending = False
+                            self._apply_baud_timer.stop()
+                            self._apply_target_baud_rate = None
+                            self._apply_rtu_button.setEnabled(True)
                             self._status.setText("● RTU Settings Applied")
-                            self._status.setStyleSheet(
-                                "color: #00C928; font-weight: bold; font-size: 16px;"
-                            )
+                            self._set_status_color("#00C928")
+                            self._set_status_color("#00C928")
                             return
 
+                        self._rtu_apply_pending = False
+                        self._apply_baud_timer.stop()
+                        self._apply_target_baud_rate = None
+                        self._apply_rtu_button.setEnabled(True)
                         set_failed()
                         return
 
                     elapsed[0] += 20
+                    # Wait for RX for a maximum of 2 seconds only.
+                    # If RX arrives earlier, it is processed immediately.
                     if elapsed[0] >= 2000:
+                        response_buffer.clear()
+                        self._apply_baud_timer.stop()
+                        self._apply_target_baud_rate = None
                         set_failed()
                         return
 
                     QTimer.singleShot(20, check_rtu_response)
 
                 except Exception:
+                    self._rtu_apply_pending = False
+                    self._apply_baud_timer.stop()
+                    self._apply_target_baud_rate = None
+                    self._apply_rtu_button.setEnabled(True)
                     set_failed()
 
             QTimer.singleShot(20, check_rtu_response)
 
         except Exception:
+            self._rtu_apply_pending = False
+            self._apply_baud_timer.stop()
+            self._apply_target_baud_rate = None
+            self._apply_rtu_button.setEnabled(True)
             self._status.setText("● RTU Settings Not Applied")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
 
+
+    def _switch_to_applied_baud(self):
+        if (
+            self._serial_connection is None
+            or not self._serial_connection.is_open
+            or self._apply_target_baud_rate is None
+        ):
+            return
+
+        try:
+            self._serial_connection.baudrate = self._apply_target_baud_rate
+            self._connected_baud_rate = self._apply_target_baud_rate
+        except Exception:
+            pass
 
     def handle_apply_tcp(self):
         ip_text = self._ip_address.text().strip()
@@ -969,22 +1074,26 @@ class ModbusView(QWidget):
             ip_address(ip_text)
         except ValueError:
             self._status.setText("● Invalid IP Address")
+            self._set_status_color("#D00000")
             return
 
         try:
             ip_network(f"0.0.0.0/{subnet_text}", strict=False)
         except ValueError:
             self._status.setText("● Invalid Subnet Mask")
+            self._set_status_color("#D00000")
             return
 
         try:
             tcp_port = int(tcp_port_text)
         except ValueError:
             self._status.setText("● TCP Port must be between 1 and 65535")
+            self._set_status_color("#D00000")
             return
 
         if not 1 <= tcp_port <= 65535:
             self._status.setText("● TCP Port must be between 1 and 65535")
+            self._set_status_color("#D00000")
             return
 
         if (
@@ -993,13 +1102,15 @@ class ModbusView(QWidget):
             or not self._serial_connection.is_open
         ):
             self._status.setText("● COM Port not connected")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
+            self._set_status_color("#D00000")
             return
 
-        if self._tcp_apply_pending:
-            return
+        # Every APPLY starts as a fresh request, so APPLY can be pressed
+        # repeatedly after success or timeout.
+        self._tcp_apply_pending = False
+        self._tcp_apply_timer.stop()
+        self._tcp_apply_buffer.clear()
 
         command = (
             f"ETH,IP={ip_text},"
@@ -1010,6 +1121,7 @@ class ModbusView(QWidget):
         try:
             self._serial_connection.reset_input_buffer()
             self._tcp_apply_buffer.clear()
+            print(f"[TX] {command!r}")
             self._serial_connection.write(command.encode("ascii"))
             self._serial_connection.flush()
 
@@ -1020,9 +1132,8 @@ class ModbusView(QWidget):
             self._tcp_apply_pending = False
             self._tcp_apply_timer.stop()
             self._status.setText("● TCP/IP Configuration failed")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
+            self._set_status_color("#D00000")
 
     def _check_tcp_apply_response(self):
         if not self._tcp_apply_pending:
@@ -1043,9 +1154,9 @@ class ModbusView(QWidget):
             waiting = self._serial_connection.in_waiting
 
             if waiting > 0:
-                self._tcp_apply_buffer.extend(
-                    self._serial_connection.read(waiting)
-                )
+                chunk = self._serial_connection.read(waiting)
+                print(f"[RX] {chunk!r}")
+                self._tcp_apply_buffer.extend(chunk)
 
             buffer_text = self._tcp_apply_buffer.decode(
                 "ascii", errors="replace"
@@ -1060,9 +1171,8 @@ class ModbusView(QWidget):
 
                 self.add_terminal_message("OK:ETH")
                 self._status.setText("● TCP/IP Configuration applied")
-                self._status.setStyleSheet(
-                    "color: #00C928; font-weight: bold; font-size: 16px;"
-                )
+                self._set_status_color("#00C928")
+                self._set_status_color("#00C928")
                 return
 
             if "ERR:CMD" in buffer_text:
@@ -1071,9 +1181,9 @@ class ModbusView(QWidget):
                 self._tcp_apply_buffer.clear()
 
                 self._status.setText("● TCP/IP Configuration failed")
-                self._status.setStyleSheet(
-                    "color: #D00000; font-weight: bold; font-size: 16px;"
-                )
+
+                self._set_status_color("#D00000")
+                self._set_status_color("#D00000")
                 return
 
             # Also accept a complete non-empty device response.
@@ -1091,34 +1201,38 @@ class ModbusView(QWidget):
                     self._tcp_apply_timer.stop()
 
                     self._status.setText("● TCP/IP Configuration failed")
-                    self._status.setStyleSheet(
-                        "color: #D00000; font-weight: bold; font-size: 16px;"
-                    )
+
+                    self._set_status_color("#D00000")
+                    self._set_status_color("#D00000")
                     return
 
             # Wait only 2 seconds for the device response.
             self._tcp_apply_elapsed += 20
             if self._tcp_apply_elapsed >= 2000:
                 self._tcp_apply_pending = False
+                self._apply_tcp_button.setEnabled(True)
                 self._tcp_apply_timer.stop()
                 self._tcp_apply_buffer.clear()
 
                 self._status.setText("● TCP/IP Configuration failed")
-                self._status.setStyleSheet(
-                    "color: #D00000; font-weight: bold; font-size: 16px;"
-                )
+
+                self._set_status_color("#D00000")
+                self._set_status_color("#D00000")
 
         except Exception as exc:
             self._tcp_apply_pending = False
+            self._apply_tcp_button.setEnabled(True)
             self._tcp_apply_timer.stop()
             self._tcp_apply_buffer.clear()
             self._status.setText("● TCP/IP Configuration failed")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
+            self._set_status_color("#D00000")
 
     def handle_apply_port1(self):
-        command = f"UART,CH=1,BAUD={self._port1.currentText()}\\n"
+        if self._port1_apply_pending:
+            return
+
+        command = f"UART,CH=1,BAUD={self._port1.currentText()}\n"
 
         if (
             self._connect_button.text() != "DISCONNECT"
@@ -1126,24 +1240,26 @@ class ModbusView(QWidget):
             or not self._serial_connection.is_open
         ):
             self._status.setText("● COM Port not connected")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
+            self._set_status_color("#D00000")
             return
 
         try:
             self._serial_connection.reset_input_buffer()
+            print(f"[TX] {command!r}")
             self._serial_connection.write(command.encode("ascii"))
             self._serial_connection.flush()
+
+            self._port1_apply_pending = True
+            self._apply_port1_button.setEnabled(False)
 
             response_buffer = bytearray()
             elapsed = [0]
 
             def set_port1_failed():
                 self._status.setText("● Port 1 Settings Not Applied")
-                self._status.setStyleSheet(
-                    "color: #D00000; font-weight: bold; font-size: 16px;"
-                )
+                self._set_status_color("#D00000")
+                self._set_status_color("#D00000")
 
             def check_port1_response():
                 if (
@@ -1156,40 +1272,54 @@ class ModbusView(QWidget):
                 try:
                     waiting = self._serial_connection.in_waiting
                     if waiting > 0:
-                        response_buffer.extend(
-                            self._serial_connection.read(waiting)
-                        )
+                        chunk = self._serial_connection.read(waiting)
+                        print(f"[RX] {chunk!r}")
+                        response_buffer.extend(chunk)
 
                     # RX may arrive in multiple chunks.
-                    if b"OK:ETH" in response_buffer:
-                        self.add_terminal_message("OK:ETH")
+                    if b"OK:UART" in response_buffer:
+                        self.add_terminal_message("OK:UART")
+                        self._port1_apply_pending = False
+                        self._apply_port1_button.setEnabled(True)
                         self._status.setText("● Port 1 Settings Applied")
-                        self._status.setStyleSheet(
-                            "color: #00C928; font-weight: bold; font-size: 16px;"
-                        )
+                        self._set_status_color("#00C928")
+                        self._set_status_color("#00C928")
                         return
 
-                    if b"\\n" in response_buffer:
+                    if b"\n" in response_buffer:
+                        self._port1_apply_pending = False
+                        self._apply_port1_button.setEnabled(True)
                         set_port1_failed()
                         return
 
                     elapsed[0] += 20
+                    # Wait for RX for a maximum of 2 seconds only.
+                    # If RX arrives earlier, it is processed immediately.
                     if elapsed[0] >= 2000:
+                        self._port1_apply_pending = False
+                        self._apply_port1_button.setEnabled(True)
                         set_port1_failed()
                         return
 
                     QTimer.singleShot(20, check_port1_response)
 
                 except Exception:
+                    self._port1_apply_pending = False
+                    self._apply_port1_button.setEnabled(True)
                     set_port1_failed()
 
             QTimer.singleShot(20, check_port1_response)
 
         except Exception:
+            self._port1_apply_pending = False
+            self._apply_port1_button.setEnabled(True)
             set_port1_failed()
 
     def handle_apply_port2(self):
-        command = f"UART,CH=2,BAUD={self._port2.currentText()}\\n"
+        if self._port2_apply_pending:
+            return
+
+        command = f"UART,CH=2,BAUD={self._port2.currentText()}\n"
 
         if (
             self._connect_button.text() != "DISCONNECT"
@@ -1197,24 +1327,26 @@ class ModbusView(QWidget):
             or not self._serial_connection.is_open
         ):
             self._status.setText("● COM Port not connected")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
+            self._set_status_color("#D00000")
             return
 
         try:
             self._serial_connection.reset_input_buffer()
+            print(f"[TX] {command!r}")
             self._serial_connection.write(command.encode("ascii"))
             self._serial_connection.flush()
+
+            self._port2_apply_pending = True
+            self._apply_port2_button.setEnabled(False)
 
             response_buffer = bytearray()
             elapsed = [0]
 
             def set_port2_failed():
                 self._status.setText("● Port 2 Settings Not Applied")
-                self._status.setStyleSheet(
-                    "color: #D00000; font-weight: bold; font-size: 16px;"
-                )
+                self._set_status_color("#D00000")
+                self._set_status_color("#D00000")
 
             def check_port2_response():
                 if (
@@ -1227,36 +1359,47 @@ class ModbusView(QWidget):
                 try:
                     waiting = self._serial_connection.in_waiting
                     if waiting > 0:
-                        response_buffer.extend(
-                            self._serial_connection.read(waiting)
-                        )
+                        chunk = self._serial_connection.read(waiting)
+                        print(f"[RX] {chunk!r}")
+                        response_buffer.extend(chunk)
 
                     # RX may arrive in multiple chunks.
-                    if b"OK:ETH" in response_buffer:
-                        self.add_terminal_message("OK:ETH")
+                    if b"OK:UART" in response_buffer:
+                        self.add_terminal_message("OK:UART")
+                        self._port2_apply_pending = False
+                        self._apply_port2_button.setEnabled(True)
                         self._status.setText("● Port 2 Settings Applied")
-                        self._status.setStyleSheet(
-                            "color: #00C928; font-weight: bold; font-size: 16px;"
-                        )
+                        self._set_status_color("#00C928")
+                        self._set_status_color("#00C928")
                         return
 
-                    if b"\\n" in response_buffer:
+                    if b"\n" in response_buffer:
+                        self._port2_apply_pending = False
+                        self._apply_port2_button.setEnabled(True)
                         set_port2_failed()
                         return
 
                     elapsed[0] += 20
+                    # Wait for RX for a maximum of 2 seconds only.
+                    # If RX arrives earlier, it is processed immediately.
                     if elapsed[0] >= 2000:
+                        self._port2_apply_pending = False
+                        self._apply_port2_button.setEnabled(True)
                         set_port2_failed()
                         return
 
                     QTimer.singleShot(20, check_port2_response)
 
                 except Exception:
+                    self._port2_apply_pending = False
+                    self._apply_port2_button.setEnabled(True)
                     set_port2_failed()
 
             QTimer.singleShot(20, check_port2_response)
 
         except Exception:
+            self._port2_apply_pending = False
+            self._apply_port2_button.setEnabled(True)
             set_port2_failed()
 
     def handle_refresh(self):
@@ -1268,15 +1411,20 @@ class ModbusView(QWidget):
             self._refresh_timer.stop()
             self._refresh_buffer.clear()
             self._status.setText("● COM Port Not Connected")
+            self._set_status_color("#D00000")
             return
 
-        if self._refresh_pending:
-            return
+        # Every Refresh starts as a fresh request.
+        # A previous Refresh must never keep the next command waiting on it.
+        self._refresh_pending = False
+        self._refresh_timer.stop()
+        self._refresh_buffer.clear()
 
         try:
             self._serial_connection.reset_input_buffer()
             self._refresh_buffer.clear()
 
+            print("[TX] GETCFG\\n")
             self._serial_connection.write(b"GETCFG\n")
             self._serial_connection.flush()
 
@@ -1288,9 +1436,8 @@ class ModbusView(QWidget):
             self._refresh_timer.stop()
             self._refresh_buffer.clear()
             self._status.setText("● Refresh Error")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
+            self._set_status_color("#D00000")
 
     def _check_refresh_response(self):
         if not self._refresh_pending:
@@ -1305,15 +1452,16 @@ class ModbusView(QWidget):
             self._refresh_timer.stop()
             self._refresh_buffer.clear()
             self._status.setText("● COM Port Not Connected")
+            self._set_status_color("#D00000")
             return
 
         try:
             waiting = self._serial_connection.in_waiting
 
             if waiting > 0:
-                self._refresh_buffer.extend(
-                    self._serial_connection.read(waiting)
-                )
+                chunk = self._serial_connection.read(waiting)
+                print(f"[RX] {chunk!r}")
+                self._refresh_buffer.extend(chunk)
 
             if b"\n" in self._refresh_buffer:
                 response_bytes, _, remaining = (
@@ -1374,6 +1522,55 @@ class ModbusView(QWidget):
                                 self._status.setText(
                                     "● Configuration Refreshed"
                                 )
+                                self._set_status_color("#00C928")
+                                self._status.setStyleSheet(
+                                    "color: #00C928; font-weight: bold; "
+                                    "font-size: 16px;"
+                                )
+                                return
+
+                    # UART GETCFG response from the device:
+                    # UART,CH=1,BAUD=9600
+                    # UART,CH=2,BAUD=19200
+                    if len(parts) == 3 and parts[0] == "UART":
+                        channel_part = parts[1]
+                        baud_part = parts[2]
+
+                        if (
+                            channel_part.startswith("CH=")
+                            and baud_part.startswith("BAUD=")
+                        ):
+                            channel_text = channel_part[3:].strip()
+                            uart_baud_text = baud_part[5:].strip()
+
+                            try:
+                                channel = int(channel_text)
+                                uart_baud = int(uart_baud_text)
+                            except ValueError:
+                                channel = None
+                                uart_baud = None
+
+                            if (
+                                channel in (1, 2)
+                                and uart_baud is not None
+                                and (
+                                    (channel == 1 and self._port1.findText(uart_baud_text) >= 0)
+                                    or
+                                    (channel == 2 and self._port2.findText(uart_baud_text) >= 0)
+                                )
+                            ):
+                                if channel == 1:
+                                    self._port1.setCurrentText(uart_baud_text)
+                                else:
+                                    self._port2.setCurrentText(uart_baud_text)
+
+                                self._refresh_pending = False
+                                self._refresh_timer.stop()
+                                self._refresh_buffer.clear()
+                                self._status.setText(
+                                    "● Configuration Refreshed"
+                                )
+                                self._set_status_color("#00C928")
                                 self._status.setStyleSheet(
                                     "color: #00C928; font-weight: bold; "
                                     "font-size: 16px;"
@@ -1415,6 +1612,7 @@ class ModbusView(QWidget):
                                 self._status.setText(
                                     "● Configuration Refreshed"
                                 )
+                                self._set_status_color("#00C928")
                                 self._status.setStyleSheet(
                                     "color: #00C928; font-weight: bold; "
                                     "font-size: 16px;"
@@ -1425,29 +1623,84 @@ class ModbusView(QWidget):
                     self._refresh_timer.stop()
                     self._refresh_buffer.clear()
                     self._status.setText("● Refresh Error")
-                    self._status.setStyleSheet(
-                        "color: #D00000; font-weight: bold; font-size: 16px;"
-                    )
+                    self._set_status_color("#D00000")
+                    self._set_status_color("#D00000")
                     return
 
             self._refresh_elapsed += 20
             if self._refresh_elapsed >= 2000:
+                # RX not received within 2 seconds: completely exit this
+                # Refresh request so the next command can run independently.
                 self._refresh_pending = False
                 self._refresh_timer.stop()
                 self._refresh_buffer.clear()
                 self._status.setText("● Refresh Error")
-                self._status.setStyleSheet(
-                    "color: #D00000; font-weight: bold; font-size: 16px;"
-                )
+                self._set_status_color("#D00000")
+                self._set_status_color("#D00000")
 
         except Exception:
             self._refresh_pending = False
             self._refresh_timer.stop()
             self._refresh_buffer.clear()
             self._status.setText("● Refresh Error")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
+            self._set_status_color("#D00000")
+
+    def _check_connection_status(self):
+        if (
+            self._serial_connection is None
+            or self._connect_button.text() != "DISCONNECT"
+        ):
+            return
+
+        try:
+            if not self._serial_connection.is_open:
+                self._handle_unexpected_disconnect()
+                return
+
+            connected_port = self._serial_connection.port
+            available_ports = {
+                port.device for port in list_ports.comports()
+            }
+
+            if connected_port not in available_ports:
+                self._handle_unexpected_disconnect()
+
+        except Exception:
+            self._handle_unexpected_disconnect()
+
+    def _handle_unexpected_disconnect(self):
+        self._tcp_apply_pending = False
+        self._tcp_apply_timer.stop()
+        self._tcp_apply_buffer.clear()
+
+        self._rtu_apply_pending = False
+        self._apply_baud_timer.stop()
+        self._apply_target_baud_rate = None
+        self._apply_rtu_button.setEnabled(True)
+
+        self._port1_apply_pending = False
+        self._apply_port1_button.setEnabled(True)
+
+        self._port2_apply_pending = False
+        self._apply_port2_button.setEnabled(True)
+
+        self._refresh_pending = False
+        self._refresh_timer.stop()
+        self._refresh_buffer.clear()
+
+        try:
+            if self._serial_connection is not None:
+                self._serial_connection.close()
+        except Exception:
+            pass
+        finally:
+            self._serial_connection = None
+
+        self._connect_button.setText("CONNECT")
+        self._status.setText("● COM Port Disconnected")
+        self._set_status_color("#D00000")
+        self._set_status_color("#D00000")
 
     def refresh_com_ports(self):
         ports = sorted(

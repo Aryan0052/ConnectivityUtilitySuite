@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QLineEdit,
     QFrame,
+    QScrollArea,
     QPlainTextEdit,
 )
 
@@ -118,11 +119,22 @@ class AnalogInputView(QWidget):
         super().__init__()
 
         self._serial_connection = None
+        self._connected_port = None
+        self._com_port_monitor_timer = QTimer(self)
+        self._com_port_monitor_timer.timeout.connect(self._check_com_port_connection)
+        self._com_port_monitor_timer.start(1000)
+
         self._apply_pending = False
         self._apply_buffer = bytearray()
         self._apply_timer = QTimer(self)
         self._apply_timer.timeout.connect(self._check_apply_response)
         self._apply_elapsed = 0
+
+        self._connected_baud_rate = None
+        self._apply_target_baud_rate = None
+        self._apply_baud_timer = QTimer(self)
+        self._apply_baud_timer.setSingleShot(True)
+        self._apply_baud_timer.timeout.connect(self._switch_to_applied_baud)
 
         self._refresh_pending = False
         self._refresh_buffer = bytearray()
@@ -139,6 +151,31 @@ class AnalogInputView(QWidget):
         )
         self._channel1_iptype_elapsed = 0
         self._channel1_iptype_received_value = None
+
+        # Min/Max Offset Modbus state for Channels 1-8.
+        self._channel_offset_pending = {channel: False for channel in range(1, 9)}
+        self._channel_offset_buffer = {channel: bytearray() for channel in range(1, 9)}
+        self._channel_offset_received_value = {
+            channel: {"min": None, "max": None}
+            for channel in range(1, 9)
+        }
+        self._channel_offset_timer = QTimer(self)
+        self._channel_offset_timer.timeout.connect(
+            self._check_channel_offset_response
+        )
+        self._channel_offset_elapsed = 0
+        self._channel_offset_active_channel = None
+        self._channel_offset_type = None
+        self._selected_channel = None
+
+        # Keep the original Channel 1 state names available.
+        self._channel1_offset_pending = False
+        self._channel1_offset_buffer = self._channel_offset_buffer[1]
+        self._channel1_offset_timer = self._channel_offset_timer
+        self._channel1_offset_elapsed = 0
+        self._channel1_min_offset_received_value = None
+        self._channel1_max_offset_received_value = None
+        self._channel1_offset_type = None
 
         # I/P Type Modbus state for Channels 1-8.
         self._channel_iptype_pending = {channel: False for channel in range(1, 9)}
@@ -258,7 +295,9 @@ class AnalogInputView(QWidget):
             }
 
             QLabel#channelTitle {
-                font-size: 16px;
+                color: #155B91;
+                font-family: Cambria;
+                font-size: 28px;
                 font-weight: bold;
             }
 
@@ -367,7 +406,9 @@ class AnalogInputView(QWidget):
         """)
 
         subtitle = QLabel("Connectivity Utility Suite")
-        subtitle.setFixedHeight(15)
+        # Keep enough vertical space for the 16px font at high Windows DPI
+        # scaling so the subtitle is never clipped.
+        subtitle.setFixedHeight(22)
         subtitle.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         subtitle.setStyleSheet("""
             QLabel {
@@ -565,6 +606,7 @@ class AnalogInputView(QWidget):
         right_panel.setObjectName("rightPanel")
 
         right_layout = QVBoxLayout(right_panel)
+        self.right_layout = right_layout
         right_layout.setContentsMargins(
             40,
             20,
@@ -586,22 +628,47 @@ class AnalogInputView(QWidget):
         self._channel_rows = []
 
         for channel in range(1, 9):
-            channel_box = QComboBox()
-            channel_box.setObjectName("channelButton")
-            channel_box.addItem(f"Analog Input Channel - {channel}")
-            channel_box.setCurrentIndex(0)
-            channel_box.setStyleSheet("font-size: 14px;")
-            channel_box.setFixedSize(210, 30)
-            channel_box.installEventFilter(self)
+            channel_button = QPushButton(
+                f"Analog Input Channel - {channel}"
+            )
+            channel_button.setObjectName("channelButton")
+            channel_button.setProperty("selected", False)
+            channel_button.setFixedSize(340, 44)
+            channel_button.setStyleSheet("""
+                QPushButton#channelButton {
+                    background: white;
+                    color: #263746;
+                    border: 1px solid #D3DDDA;
+                    border-radius: 9px;
+                    text-align: left;
+                    padding-left: 18px;
+                    font-family: Cambria;
+                    font-size: 16px;
+                    font-weight: normal;
+                }
+
+                QPushButton#channelButton:hover {
+                    border: 1px solid #1684BE;
+                    background: #F8FCFB;
+                }
+
+                QPushButton#channelButton[selected="true"] {
+                    border: 1px solid #1684BE;
+                    background: #F1F8FF;
+                }
+            """)
+            channel_button.clicked.connect(
+                lambda checked=False, ch=channel: self.channel_selected(ch)
+            )
 
             row = QHBoxLayout()
             row.setContentsMargins(0, 0, 0, 0)
             row.addStretch()
-            row.addWidget(channel_box)
+            row.addWidget(channel_button)
             row.addStretch()
             right_layout.addLayout(row)
-            right_layout.addSpacing(7)
-            self._channel_selectors.append(channel_box)
+            right_layout.addSpacing(10)
+            self._channel_selectors.append(channel_button)
             self._channel_rows.append(row)
 
         # ---------------------------------------------------------
@@ -644,7 +711,7 @@ class AnalogInputView(QWidget):
         """)
         input_row.addWidget(input_label)
         input_row.addWidget(self._input_type)
-        input_ok = QPushButton("OK")
+        input_ok = QPushButton("APPLY")
         input_ok.setObjectName("okButton")
         input_ok.setFixedSize(45, 28)
         input_ok.setStyleSheet("""
@@ -663,7 +730,7 @@ class AnalogInputView(QWidget):
         config_layout.addLayout(input_row)
 
         min_row = QHBoxLayout()
-        min_label = QLabel("Min off set range")
+        min_label = QLabel("Zero Value")
         min_label.setObjectName("smallLabel")
         self._min_offset = QLineEdit("-20000")
         self._min_offset.setFixedWidth(75)
@@ -672,7 +739,7 @@ class AnalogInputView(QWidget):
         min_row.addWidget(min_label)
         min_row.addStretch()
         min_row.addWidget(self._min_offset)
-        min_ok = QPushButton("OK")
+        min_ok = QPushButton("APPLY")
         min_ok.setObjectName("okButton")
         min_ok.setFixedSize(45, 28)
         min_ok.setStyleSheet("""
@@ -687,10 +754,11 @@ class AnalogInputView(QWidget):
             }
         """)
         min_row.addWidget(min_ok)
+        min_ok.clicked.connect(self.handle_channel1_min_offset_ok)
         config_layout.addLayout(min_row)
 
         max_row = QHBoxLayout()
-        max_label = QLabel("Max off set range")
+        max_label = QLabel("Span Value")
         max_label.setObjectName("smallLabel")
         self._max_offset = QLineEdit("+20000")
         self._max_offset.setFixedWidth(75)
@@ -699,7 +767,7 @@ class AnalogInputView(QWidget):
         max_row.addWidget(max_label)
         max_row.addStretch()
         max_row.addWidget(self._max_offset)
-        max_ok = QPushButton("OK")
+        max_ok = QPushButton("APPLY")
         max_ok.setObjectName("okButton")
         max_ok.setFixedSize(45, 28)
         max_ok.setStyleSheet("""
@@ -714,6 +782,7 @@ class AnalogInputView(QWidget):
             }
         """)
         max_row.addWidget(max_ok)
+        max_ok.clicked.connect(self.handle_channel1_max_offset_ok)
         config_layout.addLayout(max_row)
 
         # Channel 1 configuration refresh button.
@@ -743,23 +812,56 @@ class AnalogInputView(QWidget):
 
         self._channel_refresh_button = channel_refresh
 
+        # Test Mode button.
+        test_mode_button = QPushButton("TEST MODE")
+        test_mode_button.setObjectName("applyButton")
+        test_mode_button.setFixedSize(110, 28)
+        test_mode_button.setStyleSheet("""
+            QPushButton {
+                background: #168BA4;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-family: Cambria;
+                font-size: 13px;
+                font-weight: bold;
+            }
+        """)
+
+        self._test_mode_button = test_mode_button
+
 
         config_row = QHBoxLayout()
         config_row.setContentsMargins(0, 0, 0, 0)
         config_row.addStretch()
         config_row.addWidget(self._channel_config_frame)
         config_row.addStretch()
+        self._channel_config_row = config_row
         right_layout.addLayout(config_row)
 
         right_layout.addStretch()
 
+        test_mode_row = QHBoxLayout()
+        test_mode_row.setContentsMargins(0, 0, 0, 0)
+        test_mode_row.addStretch()
+        test_mode_row.addWidget(test_mode_button)
+        right_layout.addLayout(test_mode_row)
+
         main_layout.addWidget(left_panel)
         main_layout.addWidget(right_panel, 1)
 
-        root.addWidget(main, 1)
         main_layout.addWidget(right_panel, 1)
 
-        root.addWidget(main, 1)
+        # Keep the existing header fixed and allow only the main area
+        # to scroll vertically when high Windows DPI scaling needs it.
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setFrameShape(QFrame.NoFrame)
+        scroll_area.setWidget(main)
+
+        root.addWidget(scroll_area, 1)
 
         self._status = status
         self._connect_button = connect
@@ -777,6 +879,11 @@ class AnalogInputView(QWidget):
         self.apply_button.clicked.connect(self.handle_apply_rtu)
         self.refresh_button.clicked.connect(self.handle_refresh)
 
+    def _set_status_color(self, color):
+        self._status.setStyleSheet(
+            f"color: {color}; font-weight: bold; font-size: 16px;"
+        )
+
     def add_terminal_message(self, message):
         self.terminal_messages.append(str(message))
         self.terminal_message.setPlainText(
@@ -790,6 +897,7 @@ class AnalogInputView(QWidget):
 
         if not ports:
             self._status.setText("COM Port Not Found")
+            self._set_status_color("#D00000")
             return
 
         from PySide6.QtWidgets import QDialog
@@ -841,16 +949,18 @@ class AnalogInputView(QWidget):
                     timeout=1
                 )
 
+                self._connected_port = selected_port
+                self._connected_baud_rate = int(self._baud.currentText())
                 self._status.setText("Connected")
-                self._status.setStyleSheet(
-                    "color: #00C928; font-weight: bold; font-size: 16px;"
-                )
+                self._set_status_color("#00C928")
                 self._connect_button.setText("DISCONNECT")
                 dialog.accept()
 
             except Exception:
                 self._serial_connection = None
+                self._connected_port = None
                 self._status.setText("Connection Error")
+                self._set_status_color("#D00000")
                 self._connect_button.setText("CONNECT")
                 dialog.reject()
 
@@ -858,8 +968,63 @@ class AnalogInputView(QWidget):
         cancel_button.clicked.connect(dialog.reject)
         dialog.exec()
 
+    def _check_com_port_connection(self):
+        if (
+            self._serial_connection is None
+            or not self._serial_connection.is_open
+            or self._connected_port is None
+        ):
+            return
+
+        try:
+            available_ports = {
+                port.device for port in list_ports.comports()
+            }
+
+            if self._connected_port not in available_ports:
+                self._apply_baud_timer.stop()
+                self._apply_target_baud_rate = None
+                self._connected_baud_rate = None
+                self._apply_pending = False
+                self._apply_timer.stop()
+                self._apply_buffer.clear()
+
+                self._refresh_pending = False
+                self._refresh_timer.stop()
+                self._refresh_buffer.clear()
+
+                self._channel_get_timer.stop()
+                self._channel_get_active_channel = None
+
+                for channel in range(1, 9):
+                    self._channel_get_pending[channel] = False
+                    self._channel_get_buffer[channel].clear()
+
+                for channel in range(1, 9):
+                    self._channel_offset_pending[channel] = False
+                    self._channel_offset_buffer[channel].clear()
+                self._channel_offset_timer.stop()
+                self._channel_offset_active_channel = None
+                self._channel_offset_type = None
+
+                try:
+                    self._serial_connection.close()
+                finally:
+                    self._serial_connection = None
+                    self._connected_port = None
+
+                self._status.setText("COM Port Disconnected")
+                self._set_status_color("#D00000")
+                self._connect_button.setText("CONNECT")
+
+        except Exception as exc:
+            print("COM Port Monitor Error:", exc)
+
     def handle_connect(self):
         if self._connect_button.text() == "DISCONNECT":
+            self._apply_baud_timer.stop()
+            self._apply_target_baud_rate = None
+            self._connected_baud_rate = None
             self._apply_pending = False
             self._apply_timer.stop()
             self._apply_buffer.clear()
@@ -879,11 +1044,10 @@ class AnalogInputView(QWidget):
                     self._serial_connection.close()
             finally:
                 self._serial_connection = None
+                self._connected_port = None
 
             self._status.setText("Not Connected")
-            self._status.setStyleSheet(
-                "color: #10C51F; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#00C928")
             self._connect_button.setText("CONNECT")
             return
 
@@ -896,6 +1060,7 @@ class AnalogInputView(QWidget):
             or not self._serial_connection.is_open
         ):
             self._status.setText("COM Port not connected")
+            self._set_status_color("#D00000")
             return
 
         slave_text = self._slave_id.text().strip()
@@ -904,13 +1069,16 @@ class AnalogInputView(QWidget):
             slave_id = int(slave_text)
         except ValueError:
             self._status.setText("Slave ID must be 1 to 63")
+            self._set_status_color("#D00000")
             return
 
         if not 1 <= slave_id <= 63:
             self._status.setText("Slave ID must be 1 to 63")
+            self._set_status_color("#D00000")
             return
 
         baud_rate = self._baud.currentText()
+        target_baud_rate = int(baud_rate)
         command = f"SID={slave_id},MBD_BAUD={baud_rate}\n"
 
         if self._apply_pending:
@@ -919,21 +1087,45 @@ class AnalogInputView(QWidget):
         try:
             self._serial_connection.reset_input_buffer()
             self._apply_buffer.clear()
+            # Send using the currently active device baud; switch the local
+            # serial port after the device has had time to process the command.
             self._serial_connection.write(command.encode("ascii"))
             self._serial_connection.flush()
+            print(f"RTU SETTINGS TX: SID={slave_id}, BAUD={baud_rate}")
 
+            self._apply_target_baud_rate = target_baud_rate
             self._apply_pending = True
             self._apply_elapsed = 0
             self._apply_timer.start(20)
 
+            if (
+                self._connected_baud_rate is not None
+                and target_baud_rate != self._connected_baud_rate
+            ):
+                self._apply_baud_timer.start(150)
+
         except Exception:
+            self._apply_baud_timer.stop()
+            self._apply_target_baud_rate = None
             self._apply_pending = False
             self._apply_timer.stop()
             self._apply_buffer.clear()
             self._status.setText("RTU Settings Not Applied")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
+
+    def _switch_to_applied_baud(self):
+        if (
+            self._serial_connection is None
+            or not self._serial_connection.is_open
+            or self._apply_target_baud_rate is None
+        ):
+            return
+
+        try:
+            self._serial_connection.baudrate = self._apply_target_baud_rate
+            self._connected_baud_rate = self._apply_target_baud_rate
+        except Exception:
+            pass
 
     def _check_apply_response(self):
         if not self._apply_pending:
@@ -944,6 +1136,8 @@ class AnalogInputView(QWidget):
             self._serial_connection is None
             or not self._serial_connection.is_open
         ):
+            self._apply_baud_timer.stop()
+            self._apply_target_baud_rate = None
             self._apply_pending = False
             self._apply_timer.stop()
             self._apply_buffer.clear()
@@ -953,9 +1147,9 @@ class AnalogInputView(QWidget):
             waiting = self._serial_connection.in_waiting
 
             if waiting > 0:
-                self._apply_buffer.extend(
-                    self._serial_connection.read(waiting)
-                )
+                chunk = self._serial_connection.read(waiting)
+                self._apply_buffer.extend(chunk)
+                print(f"RTU SETTINGS RX: {chunk!r}")
 
             if b"\r\n" in self._apply_buffer:
                 response, _, remaining = self._apply_buffer.partition(b"\r\n")
@@ -963,6 +1157,8 @@ class AnalogInputView(QWidget):
                 self._apply_buffer = bytearray(remaining)
 
                 if complete_response == b"OK:Settings Updated\r\n":
+                    self._apply_baud_timer.stop()
+                    self._apply_target_baud_rate = None
                     self._apply_pending = False
                     self._apply_timer.stop()
                     self._apply_buffer.clear()
@@ -970,39 +1166,37 @@ class AnalogInputView(QWidget):
                     self.add_terminal_message("OK: Settings Applied")
 
                     self._status.setText("RTU Settings Applied")
-                    self._status.setStyleSheet(
-                        "color: #00C928; font-weight: bold; font-size: 16px;"
-                    )
+                    self._set_status_color("#00C928")
                     return
 
+                self._apply_baud_timer.stop()
+                self._apply_target_baud_rate = None
                 self._apply_pending = False
                 self._apply_timer.stop()
                 self._apply_buffer.clear()
                 self._status.setText("RTU Settings Not Applied")
-                self._status.setStyleSheet(
-                    "color: #D00000; font-weight: bold; font-size: 16px;"
-                )
+                self._set_status_color("#D00000")
                 return
 
             self._apply_elapsed += 20
 
             if self._apply_elapsed >= 2000:
+                self._apply_baud_timer.stop()
+                self._apply_target_baud_rate = None
                 self._apply_pending = False
                 self._apply_timer.stop()
                 self._apply_buffer.clear()
                 self._status.setText("RTU Settings Not Applied")
-                self._status.setStyleSheet(
-                    "color: #D00000; font-weight: bold; font-size: 16px;"
-                )
+                self._set_status_color("#D00000")
 
         except Exception:
+            self._apply_baud_timer.stop()
+            self._apply_target_baud_rate = None
             self._apply_pending = False
             self._apply_timer.stop()
             self._apply_buffer.clear()
             self._status.setText("RTU Settings Not Applied")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
 
     def handle_refresh(self):
         if (
@@ -1010,6 +1204,7 @@ class AnalogInputView(QWidget):
             or not self._serial_connection.is_open
         ):
             self._status.setText("COM Port Not Connected")
+            self._set_status_color("#D00000")
             return
 
         if self._refresh_pending:
@@ -1030,9 +1225,7 @@ class AnalogInputView(QWidget):
             self._refresh_timer.stop()
             self._refresh_buffer.clear()
             self._status.setText("Refresh Error")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
 
     def _check_refresh_response(self):
         if not self._refresh_pending:
@@ -1047,6 +1240,7 @@ class AnalogInputView(QWidget):
             self._refresh_timer.stop()
             self._refresh_buffer.clear()
             self._status.setText("COM Port Not Connected")
+            self._set_status_color("#D00000")
             return
 
         try:
@@ -1105,18 +1299,14 @@ class AnalogInputView(QWidget):
                                 self._status.setText(
                                     "Configuration Refreshed"
                                 )
-                                self._status.setStyleSheet(
-                                    "color: #00C928; font-weight: bold; font-size: 16px;"
-                                )
+                                self._set_status_color("#00C928")
                                 return
 
                 self._refresh_pending = False
                 self._refresh_timer.stop()
                 self._refresh_buffer.clear()
                 self._status.setText("Refresh Error")
-                self._status.setStyleSheet(
-                    "color: #D00000; font-weight: bold; font-size: 16px;"
-                )
+                self._set_status_color("#D00000")
                 return
 
             self._refresh_elapsed += 20
@@ -1126,18 +1316,14 @@ class AnalogInputView(QWidget):
                 self._refresh_timer.stop()
                 self._refresh_buffer.clear()
                 self._status.setText("Refresh Error")
-                self._status.setStyleSheet(
-                    "color: #D00000; font-weight: bold; font-size: 16px;"
-                )
+                self._set_status_color("#D00000")
 
         except Exception:
             self._refresh_pending = False
             self._refresh_timer.stop()
             self._refresh_buffer.clear()
             self._status.setText("Refresh Error")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
 
     # ============================================================
     # CHANNEL 1 - MODBUS CRC
@@ -1206,6 +1392,7 @@ class AnalogInputView(QWidget):
         if selected_channel is None:
             print("FAILED: No analog input channel selected")
             self._status.setText("Channel Not Selected")
+            self._set_status_color("#D00000")
             return
 
         channel_address = CHANNEL_INPUT_TYPE_ADDRESSES[selected_channel]
@@ -1224,9 +1411,8 @@ class AnalogInputView(QWidget):
         ):
             print("FAILED: COM Port Not Connected")
             self._status.setText("COM Port Not Connected")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
+            self._set_status_color("#D00000")
             return
 
         # --------------------------------------------------------
@@ -1239,11 +1425,13 @@ class AnalogInputView(QWidget):
         except ValueError:
             print("FAILED: Invalid Slave ID")
             self._status.setText("Slave ID must be 1 to 63")
+            self._set_status_color("#D00000")
             return
 
         if not 1 <= slave_id <= 63:
             print("FAILED: Slave ID must be 1 to 63")
             self._status.setText("Slave ID must be 1 to 63")
+            self._set_status_color("#D00000")
             return
 
         # --------------------------------------------------------
@@ -1254,6 +1442,7 @@ class AnalogInputView(QWidget):
         if input_type not in CHANNEL1_INPUT_TYPE_VALUES:
             print("FAILED: Unknown I/P Type:", input_type)
             self._status.setText("Invalid I/P Type")
+            self._set_status_color("#D00000")
             return
 
         input_type_value = CHANNEL1_INPUT_TYPE_VALUES[input_type]
@@ -1306,9 +1495,7 @@ class AnalogInputView(QWidget):
             self._channel_iptype_buffer[selected_channel].clear()
 
             self._status.setText("I/P Type Not Applied")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
 
     # ============================================================
     # CHANNEL 1-8 - CHECK MODBUS RESPONSE
@@ -1354,9 +1541,8 @@ class AnalogInputView(QWidget):
             channel_buffer.clear()
 
             self._status.setText("COM Port Not Connected")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
+            self._set_status_color("#D00000")
             return
 
         try:
@@ -1498,9 +1684,7 @@ class AnalogInputView(QWidget):
                 channel_buffer.clear()
 
                 self._status.setText("I/P Type Applied")
-                self._status.setStyleSheet(
-                    "color: #00C928; font-weight: bold; font-size: 16px;"
-                )
+                self._set_status_color("#00C928")
                 return
 
             # ----------------------------------------------------
@@ -1536,13 +1720,349 @@ class AnalogInputView(QWidget):
         self._channel_iptype_buffer[channel].clear()
 
         self._status.setText(status_text)
-        self._status.setStyleSheet(
-            "color: #D00000; font-weight: bold; font-size: 16px;"
-        )
+        self._set_status_color("#D00000")
 
     # Keep the original Channel 1 helper name available.
     def _finish_channel1_iptype_failure(self, status_text):
         self._finish_channel_iptype_failure(1, status_text)
+
+    # ============================================================
+    # CHANNEL 1-8 - ZERO / SPAN FUNCTION CODE 06
+    # ============================================================
+
+    def build_channel1_offset_frame(self, slave_id, address, offset_value):
+        """
+        Build: Slave ID | FC 06 | Address | 2-byte signed value | CRC.
+        Function Code 06 is the same for Channels 1-8.
+        """
+        if offset_value < 0:
+            offset_value = offset_value & 0xFFFF
+
+        data = bytes([
+            slave_id,
+            0x06,
+            (address >> 8) & 0xFF,
+            address & 0xFF,
+            (offset_value >> 8) & 0xFF,
+            offset_value & 0xFF,
+        ])
+
+        crc = self.calculate_modbus_crc(data)
+        return data + bytes([crc & 0xFF, (crc >> 8) & 0xFF])
+
+    def _get_selected_channel(self):
+        if self._selected_channel in range(1, 9):
+            return self._selected_channel
+
+        for channel in range(1, 9):
+            if self._channel_selectors[channel - 1].isVisible():
+                return channel
+        return None
+
+    def _handle_channel_offset_ok(self, offset_type):
+        selected_channel = self._get_selected_channel()
+
+        print("\n============================================================")
+        print(
+            f"CHANNEL {selected_channel if selected_channel else 'UNKNOWN'} "
+            f"{offset_type.upper()} OFFSET - OK BUTTON PRESSED"
+        )
+        print("============================================================")
+
+        if selected_channel is None:
+            print("FAILED: No analog input channel selected")
+            self._status.setText("Channel Not Selected")
+            self._set_status_color("#D00000")
+            return
+
+        if (
+            self._connect_button.text() != "DISCONNECT"
+            or self._serial_connection is None
+            or not self._serial_connection.is_open
+        ):
+            print("FAILED: COM Port Not Connected")
+            self._status.setText("COM Port Not Connected")
+            self._set_status_color("#D00000")
+            self._set_status_color("#D00000")
+            return
+
+        try:
+            slave_id = int(self._slave_id.text().strip())
+        except ValueError:
+            print("FAILED: Invalid Slave ID")
+            self._status.setText("Slave ID must be 1 to 63")
+            self._set_status_color("#D00000")
+            return
+
+        if not 1 <= slave_id <= 63:
+            print("FAILED: Slave ID must be 1 to 63")
+            self._status.setText("Slave ID must be 1 to 63")
+            self._set_status_color("#D00000")
+            return
+
+        field = self._min_offset if offset_type == "min" else self._max_offset
+        try:
+            offset_value = int(field.text().strip())
+        except ValueError:
+            print(f"FAILED: Invalid {offset_type} offset value")
+            self._status.setText("Invalid Offset Value")
+            self._set_status_color("#D00000")
+            return
+
+        if not -20000 <= offset_value <= 20000:
+            print(f"FAILED: {offset_type} offset value out of UI range")
+            self._status.setText("Offset must be -20000 to 20000")
+            self._set_status_color("#D00000")
+            return
+
+        # Zero: CH1=0014, CH2=0015 ... CH8=001B.
+        # Span: CH1=001E, CH2=001F ... CH8=0025.
+        if offset_type == "min":
+            address = 0x0014 + (selected_channel - 1)
+        else:
+            address = 0x001E + (selected_channel - 1)
+
+        unsigned_value = offset_value & 0xFFFF
+
+        print("Selected Channel:", selected_channel)
+        print("Function Code: 06")
+        print("Address:", f"{address:04X}")
+        print("Signed Offset Value:", offset_value)
+        print("2-byte Value:", f"{unsigned_value:04X}")
+
+        if self._channel_offset_pending[selected_channel]:
+            print(
+                f"FAILED: Channel {selected_channel} "
+                "Zero/Span request already pending"
+            )
+            return
+
+        frame = self.build_channel1_offset_frame(
+            slave_id, address, offset_value
+        )
+
+        print("TX FRAME HEX:", frame.hex(" ").upper())
+        print("TX FRAME BYTES:", frame)
+
+        try:
+            self._serial_connection.reset_input_buffer()
+            self._channel_offset_buffer[selected_channel].clear()
+            self._serial_connection.write(frame)
+            self._serial_connection.flush()
+
+            print("TX SUCCESS: Raw binary frame sent")
+
+            self._channel_offset_pending[selected_channel] = True
+            self._channel_offset_active_channel = selected_channel
+            self._channel_offset_type = offset_type
+            self._channel_offset_elapsed = 0
+            self._channel_offset_timer.start(20)
+
+            # Keep original Channel 1 state synchronized.
+            if selected_channel == 1:
+                self._channel1_offset_pending = True
+                self._channel1_offset_type = offset_type
+                self._channel1_offset_elapsed = 0
+
+        except Exception as exc:
+            print("FAILED: TX Exception:", exc)
+            self._finish_channel_offset_failure(
+                selected_channel,
+                "Min Offset Not Applied" if offset_type == "min"
+                else "Max Offset Not Applied"
+            )
+
+    def handle_channel1_min_offset_ok(self):
+        self._handle_channel_offset_ok("min")
+
+    def handle_channel1_max_offset_ok(self):
+        self._handle_channel_offset_ok("max")
+
+    def _check_channel_offset_response(self):
+        if self._channel_offset_active_channel is None:
+            self._channel_offset_timer.stop()
+            return
+
+        channel = self._channel_offset_active_channel
+        offset_type = self._channel_offset_type
+        expected_address = (
+            0x0014 + (channel - 1)
+            if offset_type == "min"
+            else 0x001E + (channel - 1)
+        )
+        buffer = self._channel_offset_buffer[channel]
+
+        if not self._channel_offset_pending[channel]:
+            self._channel_offset_timer.stop()
+            return
+
+        if (
+            self._serial_connection is None
+            or not self._serial_connection.is_open
+        ):
+            print(
+                f"FAILED: COM Port disconnected while waiting for "
+                f"Channel {channel} Offset RX"
+            )
+            self._finish_channel_offset_failure(
+                channel, "COM Port Not Connected"
+            )
+            return
+
+        try:
+            waiting = self._serial_connection.in_waiting
+
+            if waiting > 0:
+                received = self._serial_connection.read(waiting)
+                buffer.extend(received)
+                print(
+                    f"RX OFFSET CH{channel} CHUNK HEX:",
+                    received.hex(" ").upper(),
+                )
+                print(
+                    f"RX OFFSET CH{channel} BUFFER HEX:",
+                    bytes(buffer).hex(" ").upper(),
+                )
+
+            if len(buffer) >= 8:
+                response = bytes(buffer[:8])
+                del buffer[:8]
+
+                print(
+                    f"RX OFFSET CH{channel} FRAME HEX:",
+                    response.hex(" ").upper(),
+                )
+
+                rx_slave_id = response[0]
+                rx_function = response[1]
+                rx_address = (response[2] << 8) | response[3]
+                rx_raw_value = (response[4] << 8) | response[5]
+                rx_value = (
+                    rx_raw_value - 0x10000
+                    if rx_raw_value & 0x8000
+                    else rx_raw_value
+                )
+                rx_crc_received = response[6] | (response[7] << 8)
+                rx_crc_calculated = self.calculate_modbus_crc(response[:6])
+
+                print("RX Slave ID:", rx_slave_id)
+                print("RX Function Code:", f"{rx_function:02X}")
+                print("RX Address:", f"{rx_address:04X}")
+                print("RX Raw Value:", f"{rx_raw_value:04X}")
+                print("RX Signed Value:", rx_value)
+                print("RX CRC Received:", f"{rx_crc_received:04X}")
+                print("RX CRC Calculated:", f"{rx_crc_calculated:04X}")
+
+                try:
+                    expected_slave_id = int(self._slave_id.text().strip())
+                except ValueError:
+                    print("FAILED: Invalid Slave ID during Offset RX validation")
+                    self._finish_channel_offset_failure(
+                        channel, "Offset Response Error"
+                    )
+                    return
+
+                if rx_slave_id != expected_slave_id:
+                    print("FAILED: Offset RX Slave ID mismatch")
+                    self._finish_channel_offset_failure(
+                        channel, "Offset Response Error"
+                    )
+                    return
+
+                if rx_function != 0x06:
+                    print("FAILED: Offset RX Function Code mismatch")
+                    self._finish_channel_offset_failure(
+                        channel, "Offset Response Error"
+                    )
+                    return
+
+                if rx_address != expected_address:
+                    print("FAILED: Offset RX Address mismatch")
+                    self._finish_channel_offset_failure(
+                        channel, "Offset Response Error"
+                    )
+                    return
+
+                if rx_crc_received != rx_crc_calculated:
+                    print("FAILED: Offset RX CRC mismatch")
+                    self._finish_channel_offset_failure(
+                        channel, "Offset Response Error"
+                    )
+                    return
+
+                self._channel_offset_received_value[channel][offset_type] = rx_value
+
+                if channel == self._get_selected_channel():
+                    if offset_type == "min":
+                        self._min_offset.setText(str(rx_value))
+                    else:
+                        self._max_offset.setText(str(rx_value))
+
+                if offset_type == "min":
+                    status_text = f"CH{channel} Zero Value Applied"
+                else:
+                    status_text = f"CH{channel} Span Value Applied"
+
+                print("RX VALIDATION: SUCCESS")
+                print("Validated Signed Offset Value:", rx_value)
+
+                self._channel_offset_pending[channel] = False
+                self._channel_offset_active_channel = None
+                self._channel_offset_type = None
+                self._channel_offset_timer.stop()
+                buffer.clear()
+
+                if channel == 1:
+                    self._channel1_offset_pending = False
+                    self._channel1_offset_type = None
+                    if offset_type == "min":
+                        self._channel1_min_offset_received_value = rx_value
+                    else:
+                        self._channel1_max_offset_received_value = rx_value
+
+                self._status.setText(status_text)
+                self._set_status_color("#00C928")
+                return
+
+            self._channel_offset_elapsed += 20
+
+            if self._channel_offset_elapsed >= 2000:
+                print(f"FAILED: Channel {channel} Offset response timeout")
+                print(
+                    "RX BUFFER AT TIMEOUT:",
+                    bytes(buffer).hex(" ").upper(),
+                )
+                self._finish_channel_offset_failure(
+                    channel, "Offset Response Timeout"
+                )
+
+        except Exception as exc:
+            print("FAILED: Offset RX Exception:", exc)
+            self._finish_channel_offset_failure(
+                channel, "Offset Response Error"
+            )
+
+    def _finish_channel_offset_failure(self, channel, status_text):
+        self._channel_offset_pending[channel] = False
+        self._channel_offset_timer.stop()
+        self._channel_offset_buffer[channel].clear()
+        self._channel_offset_active_channel = None
+        self._channel_offset_type = None
+
+        if channel == 1:
+            self._channel1_offset_pending = False
+            self._channel1_offset_type = None
+
+        self._status.setText(status_text)
+        self._set_status_color("#D00000")
+
+    # Keep the original Channel 1 helper name available.
+    def _check_channel1_offset_response(self):
+        self._check_channel_offset_response()
+
+    def _finish_channel1_offset_failure(self, status_text):
+        channel = self._channel_offset_active_channel or 1
+        self._finish_channel_offset_failure(channel, status_text)
 
     # ============================================================
     # CHANNEL 1-8 - BUILD FUNCTION CODE 03 GET FRAME
@@ -1589,6 +2109,7 @@ class AnalogInputView(QWidget):
         if selected_channel is None:
             print("FAILED: No analog input channel selected")
             self._status.setText("Channel Not Selected")
+            self._set_status_color("#D00000")
             return
 
         channel_address = CHANNEL_INPUT_TYPE_ADDRESSES[selected_channel]
@@ -1608,9 +2129,8 @@ class AnalogInputView(QWidget):
         ):
             print("FAILED: COM Port Not Connected")
             self._status.setText("COM Port Not Connected")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
+            self._set_status_color("#D00000")
             return
 
         # --------------------------------------------------------
@@ -1623,11 +2143,13 @@ class AnalogInputView(QWidget):
         except ValueError:
             print("FAILED: Invalid Slave ID")
             self._status.setText("Slave ID must be 1 to 63")
+            self._set_status_color("#D00000")
             return
 
         if not 1 <= slave_id <= 63:
             print("FAILED: Slave ID must be 1 to 63")
             self._status.setText("Slave ID must be 1 to 63")
+            self._set_status_color("#D00000")
             return
 
         print("Slave ID:", slave_id)
@@ -1678,9 +2200,7 @@ class AnalogInputView(QWidget):
             self._channel_get_buffer[selected_channel].clear()
 
             self._status.setText("I/P Type Refresh Failed")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
 
     def _check_channel_get_response(self):
         selected_channel = self._channel_get_active_channel
@@ -1860,9 +2380,7 @@ class AnalogInputView(QWidget):
                 self._status.setText(
                     f"Channel {selected_channel} I/P Type Refreshed"
                 )
-                self._status.setStyleSheet(
-                    "color: #00C928; font-weight: bold; font-size: 16px;"
-                )
+                self._set_status_color("#00C928")
                 return
 
             # ----------------------------------------------------
@@ -1901,45 +2419,130 @@ class AnalogInputView(QWidget):
         self._channel_get_buffer[channel].clear()
 
         self._status.setText(status_text)
-        self._status.setStyleSheet(
-            "color: #D00000; font-weight: bold; font-size: 16px;"
-        )
+        self._set_status_color("#D00000")
 
     # Keep the original Channel 1 refresh helper name available.
     def handle_channel1_refresh(self):
         self.handle_channel_refresh()
 
+    def channel_selected(self, channel):
+        # Clicking the same channel again hides its configuration.
+        if (
+            getattr(self, "_selected_channel", None) == channel
+            and self._channel_config_frame.isVisible()
+        ):
+            self._channel_config_frame.setVisible(False)
+            self._channel_refresh_button.setVisible(False)
+            self._selected_channel = None
+
+            config_index = self.right_layout.indexOf(self._channel_config_row)
+            if config_index >= 0:
+                self.right_layout.takeAt(config_index)
+
+            for button in self._channel_selectors:
+                button.setProperty("selected", False)
+                button.style().unpolish(button)
+                button.style().polish(button)
+            return
+
+        # Keep all channel buttons visible and show the configuration
+        # directly below the channel that was clicked.
+        config_index = self.right_layout.indexOf(self._channel_config_row)
+        if config_index >= 0:
+            self.right_layout.takeAt(config_index)
+
+        self._selected_channel = channel
+        self._channel_config_frame.setVisible(True)
+        self._channel_refresh_button.setVisible(True)
+
+        for index, button in enumerate(self._channel_selectors, start=1):
+            button.setProperty("selected", index == channel)
+            button.style().unpolish(button)
+            button.style().polish(button)
+            button.setVisible(True)
+
+        channel_row_index = self.right_layout.indexOf(
+            self._channel_rows[channel - 1]
+        )
+        if channel_row_index >= 0:
+            self.right_layout.insertLayout(
+                channel_row_index + 1,
+                self._channel_config_row,
+            )
+
     def eventFilter(self, obj, event):
         if event.type() == QEvent.MouseButtonPress and obj in self._channel_selectors:
-            if obj.isVisible() and self._channel_config_frame.isVisible():
+            channel = self._channel_selectors.index(obj) + 1
+
+            if (
+                getattr(self, "_selected_channel", None) == channel
+                and self._channel_config_frame.isVisible()
+            ):
                 self.reset_channel_view()
             else:
-                self.show_channel_config(obj.currentText())
+                self.show_channel_config(
+                    f"Analog Input Channel - {channel}"
+                )
             return True
+
         return super().eventFilter(obj, event)
 
     def show_channel_config(self, channel_name):
         selected_box = None
         for box in self._channel_selectors:
-            if box.currentText() == channel_name:
+            if box.text() == channel_name:
                 selected_box = box
                 break
 
         if selected_box is None:
             return
 
-        # Keep only the selected channel visible.
+        self._selected_channel = self._channel_selectors.index(selected_box) + 1
+
+        # Keep all channel buttons visible, like Analog Output.
         for box in self._channel_selectors:
-            box.setVisible(box is selected_box)
+            box.setVisible(True)
+            box.setProperty("selected", box is selected_box)
+            box.style().unpolish(box)
+            box.style().polish(box)
+
+        # Show the stored Zero/Span values for the selected channel.
+        zero_value = self._channel_offset_received_value[self._selected_channel]["min"]
+        span_value = self._channel_offset_received_value[self._selected_channel]["max"]
+        self._min_offset.setText(
+            str(zero_value) if zero_value is not None else "-20000"
+        )
+        self._max_offset.setText(
+            str(span_value) if span_value is not None else "+20000"
+        )
 
         self._channel_config_frame.setVisible(True)
         self._channel_refresh_button.setVisible(True)
 
+        # Move the configuration box directly below the selected channel.
+        config_index = self.right_layout.indexOf(self._channel_config_row)
+        if config_index >= 0:
+            self.right_layout.takeAt(config_index)
+
+        channel_row_index = self.right_layout.indexOf(
+            self._channel_rows[self._selected_channel - 1]
+        )
+        if channel_row_index >= 0:
+            self.right_layout.insertLayout(
+                channel_row_index + 1,
+                self._channel_config_row,
+            )
+
     def reset_channel_view(self):
         for box in self._channel_selectors:
             box.setVisible(True)
+            box.setProperty("selected", False)
+            box.style().unpolish(box)
+            box.style().polish(box)
+
         self._channel_config_frame.setVisible(False)
         self._channel_refresh_button.setVisible(False)
+        self._selected_channel = None
 
     def handle_back(self):
         self._apply_pending = False
@@ -1953,6 +2556,18 @@ class AnalogInputView(QWidget):
         self._channel1_iptype_pending = False
         self._channel1_iptype_timer.stop()
         self._channel1_iptype_buffer.clear()
+
+        for channel in range(1, 9):
+            self._channel_offset_pending[channel] = False
+            self._channel_offset_buffer[channel].clear()
+        self._channel_offset_timer.stop()
+        self._channel_offset_active_channel = None
+        self._channel_offset_type = None
+
+        self._channel1_offset_pending = False
+        self._channel1_offset_timer.stop()
+        self._channel1_offset_buffer.clear()
+        self._channel1_offset_type = None
 
         for channel in range(1, 9):
             self._channel_iptype_pending[channel] = False
@@ -1970,9 +2585,7 @@ class AnalogInputView(QWidget):
 
         self._connect_button.setText("CONNECT")
         self._status.setText("Not Connected")
-        self._status.setStyleSheet(
-            "color: #10C51F; font-weight: bold; font-size: 16px;"
-        )
+        self._set_status_color("#00C928")
 
         self.terminal_messages = ["Device Terminal Ready"]
         self.terminal_message.setPlainText("Device Terminal Ready")

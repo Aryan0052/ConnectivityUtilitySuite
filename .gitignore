@@ -1,0 +1,25 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Build / EXE files
+build/
+dist/
+*.spec
+
+# Logs / temporary files
+*.log
+startup_time.txt
+
+# Test data
+*.csv
+*.xlsx
+
+# IDE
+.vscode/
+.idea/

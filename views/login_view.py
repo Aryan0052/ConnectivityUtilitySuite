@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPainter, QPen, QPixmap
+from PySide6.QtGui import QPainter, QPen, QPixmap, QColor
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -11,6 +11,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
     QWidget,
+    QToolButton,
+    QGraphicsDropShadowEffect,
 )
 
 
@@ -56,6 +58,31 @@ class LockIcon(QWidget):
         painter.end()
 
 
+class EyeButton(QToolButton):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(42, 42)
+        self.setCursor(Qt.PointingHandCursor)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        pen = QPen(Qt.black)
+        pen.setWidth(2)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+
+        # Slightly organic Instagram-style visibility icon: almond eye + iris
+        # with a diagonal slash rather than a perfectly geometric outline.
+        painter.drawArc(7, 13, 28, 16, 20 * 16, 140 * 16)
+        painter.drawArc(7, 13, 28, 16, 200 * 16, 140 * 16)
+        painter.drawEllipse(17, 17, 8, 8)
+        painter.drawLine(9, 29, 34, 9)
+
+        painter.end()
+
+
 class LoginView(QWidget):
     login_successful = Signal()
 
@@ -67,7 +94,7 @@ class LoginView(QWidget):
         self.background_path = (
             self.project_root
             / "assets"
-            / "login_background.png"
+            / "Nelumbo_Remote_IO_Module_System.png"
         )
 
         self.build_ui()
@@ -79,70 +106,71 @@ class LoginView(QWidget):
         self.setStyleSheet(
             """
             QWidget#loginView {
-                background: #777777;
+                background: #EAF3FB;
             }
 
             QWidget#loginPanel {
                 background: qlineargradient(
-                    x1: 0,
-                    y1: 0,
-                    x2: 1,
-                    y2: 1,
-                    stop: 0 #10A9B8,
-                    stop: 0.50 #087EA9,
-                    stop: 1 #15558F
+                    x1: 0, y1: 0, x2: 1, y2: 1,
+                    stop: 0 #079DB1,
+                    stop: 0.52 #087FAF,
+                    stop: 1 #075B8D
                 );
-
-                border: 2px solid #12C92A;
+                border: 2px solid #19C4D1;
                 border-radius: 24px;
             }
 
             QLabel#loginTitle {
                 background: transparent;
                 border: none;
-                color: white;
+                color: #FFFFFF;
 
                 font-family: Cambria;
-                font-size: 35px;
+                font-size: 32px;
                 font-weight: bold;
             }
 
             QLineEdit {
-                background: #DCE4E2;
-                color: #222222;
+                background: #FFFFFF;
+                color: #123B5D;
 
-                border: 2px solid white;
-                border-radius: 15px;
+                border: 2px solid #D3E5F2;
+                border-radius: 14px;
 
                 padding-left: 52px;
-                padding-right: 12px;
+                padding-right: 52px;
 
                 font-family: Cambria;
-                font-size: 28px;
+                font-size: 24px;
+            }
+
+            QLineEdit:focus {
+                background: #FFFFFF;
+                border: 2px solid #19A9C6;
             }
 
             QLineEdit::placeholder {
-                color: #777777;
+                color: #7891A5;
             }
 
             QPushButton#loginButton {
-                background: #16D322;
+                background: #1677B8;
                 color: white;
 
-                border: 2px solid #A8F2A8;
+                border: 2px solid #4AB7E8;
                 border-radius: 14px;
 
                 font-family: Cambria;
-                font-size: 30px;
+                font-size: 22px;
                 font-weight: bold;
             }
 
             QPushButton#loginButton:hover {
-                background: #19D827;
+                background: #0F679F;
             }
 
             QPushButton#loginButton:pressed {
-                background: #12BD20;
+                background: #0A527F;
             }
             """
         )
@@ -151,7 +179,7 @@ class LoginView(QWidget):
         self.background = QLabel(self)
         self.background.setAlignment(Qt.AlignCenter)
 
-        # Dark transparent overlay over the background image.
+        # Soft dark overlay keeps the product visible while improving login readability.
         self.overlay = QWidget(self)
         self.overlay.setAttribute(
             Qt.WA_TransparentForMouseEvents,
@@ -160,7 +188,7 @@ class LoginView(QWidget):
         self.overlay.setStyleSheet(
             """
             QWidget {
-                background-color: rgba(0, 0, 0, 185);
+                background-color: rgba(0, 0, 0, 225);
                 border: none;
             }
             """
@@ -170,6 +198,14 @@ class LoginView(QWidget):
         self.panel = QWidget(self)
         self.panel.setObjectName("loginPanel")
         self.panel.setFixedSize(520, 400)
+
+        # Soft blue-grey shadow gives the white login card depth without
+        # changing any login functionality.
+        self.panel_shadow = QGraphicsDropShadowEffect(self.panel)
+        self.panel_shadow.setBlurRadius(38)
+        self.panel_shadow.setOffset(0, 12)
+        self.panel_shadow.setColor(QColor(0, 54, 86, 125))
+        self.panel.setGraphicsEffect(self.panel_shadow)
 
         panel_layout = QVBoxLayout(self.panel)
 
@@ -281,6 +317,31 @@ class LoginView(QWidget):
 
         lock_icon.raise_()
 
+        # Password eye button
+        self.password_eye_button = EyeButton(
+            password_container
+        )
+
+        self.password_eye_button.setStyleSheet(
+            """
+            QToolButton {
+                background: transparent;
+                border: none;
+            }
+            """
+        )
+
+        self.password_eye_button.move(
+            406,
+            8,
+        )
+
+        self.password_eye_button.raise_()
+
+        self.password_eye_button.clicked.connect(
+            self.toggle_password_visibility
+        )
+
         panel_layout.addWidget(
             password_container
         )
@@ -330,6 +391,20 @@ class LoginView(QWidget):
             self.login
         )
 
+    def toggle_password_visibility(self):
+
+        if (
+            self.password_input.echoMode()
+            == QLineEdit.Password
+        ):
+            self.password_input.setEchoMode(
+                QLineEdit.Normal
+            )
+        else:
+            self.password_input.setEchoMode(
+                QLineEdit.Password
+            )
+
     def login(self):
 
         username = (
@@ -349,6 +424,47 @@ class LoginView(QWidget):
         ):
             self.login_successful.emit()
 
+        else:
+            self.show_login_error()
+
+    def show_login_error(self):
+
+        error_label = getattr(
+            self,
+            "login_error_label",
+            None,
+        )
+
+        if error_label is None:
+
+            self.login_error_label = QLabel(
+                "Incorrect username or password"
+            )
+
+            self.login_error_label.setAlignment(
+                Qt.AlignCenter
+            )
+
+            self.login_error_label.setStyleSheet(
+                """
+                QLabel {
+                    color: #FF3333;
+                    background: transparent;
+                    border: none;
+                    font-family: Cambria;
+                    font-size: 16px;
+                    font-weight: bold;
+                }
+                """
+            )
+
+            self.panel.layout().insertWidget(
+                5,
+                self.login_error_label,
+            )
+
+        self.login_error_label.show()
+
     def resizeEvent(self, event):
 
         super().resizeEvent(event)
@@ -366,18 +482,31 @@ class LoginView(QWidget):
 
             if not pixmap.isNull():
 
-                # Slightly zoom the background.
-                zoomed_size = self.size() * 1.10
+                # Use a tight crop around the complete device so the
+                # hardware stays clearly visible without showing excessive
+                # empty photograph background or cutting off any module.
+                left = 215
+                top = 65
+                right = min(1465, pixmap.width())
+                bottom = min(925, pixmap.height())
 
-                scaled = pixmap.scaled(
-                    zoomed_size,
-                    Qt.KeepAspectRatioByExpanding,
+                crop_width = max(1, right - left)
+                crop_height = max(1, bottom - top)
+                cropped = pixmap.copy(left, top, crop_width, crop_height)
+
+                # Slightly zoom the device while keeping the same fullscreen behavior.
+                # The crop already contains a small safety margin around the hardware.
+                zoom = 1.10
+                target_width = int(self.width() * zoom)
+                target_height = int(self.height() * zoom)
+                scaled = cropped.scaled(
+                    target_width,
+                    target_height,
+                    Qt.IgnoreAspectRatio,
                     Qt.SmoothTransformation,
                 )
 
-                self.background.setPixmap(
-                    scaled
-                )
+                self.background.setPixmap(scaled)
 
                 self.background.setAlignment(
                     Qt.AlignCenter

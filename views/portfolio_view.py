@@ -1,7 +1,7 @@
 ﻿import os
 
 from PySide6.QtCore import Qt, Signal, QUrl
-from PySide6.QtGui import QPainter, QPixmap, QDesktopServices
+from PySide6.QtGui import QPainter, QPixmap, QDesktopServices, QColor, QPen, QBrush, QFont, QPainterPath
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QFrame,
     QHBoxLayout,
+    QMessageBox,
 )
 
 
@@ -16,9 +17,7 @@ class PortfolioBackground(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-
         self.pixmap = QPixmap(
             os.path.join(
                 os.path.dirname(os.path.dirname(__file__)),
@@ -26,23 +25,121 @@ class PortfolioBackground(QWidget):
                 "portfolio_BG.png"
             )
         )
-
         self.lower()
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
-
         if not self.pixmap.isNull():
             scaled = self.pixmap.scaled(
-                self.size(),
-                Qt.IgnoreAspectRatio,
-                Qt.SmoothTransformation
+                self.size(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation
             )
-
             painter.drawPixmap(0, 0, scaled)
-
         painter.end()
+
+
+class ModuleButton(QPushButton):
+    """Custom painted module card. Click behaviour remains a normal QPushButton."""
+
+    def __init__(self, code, title, description, accent, icon_type, parent=None):
+        super().__init__(parent)
+        self.code = code
+        self.title = title
+        self.description = description
+        self.accent = QColor(accent)
+        self.icon_type = icon_type
+        self.setCursor(Qt.PointingHandCursor)
+        self.setMinimumHeight(185)
+        self.setFlat(True)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        radius = 16
+
+        # Card
+        painter.setPen(QPen(QColor("#D7E6EA"), 1))
+        painter.setBrush(QBrush(QColor(255, 255, 255, 244)))
+        painter.drawRoundedRect(rect, radius, radius)
+
+        # Accent bottom bar
+        bottom = rect.adjusted(0, rect.height() - 5, 0, 0)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(self.accent))
+        painter.drawRoundedRect(bottom, 3, 3)
+
+        # Icon square
+        icon_rect = rect.adjusted(28, 28, 0, 0)
+        icon_rect.setWidth(62)
+        icon_rect.setHeight(62)
+        painter.setBrush(QBrush(self.accent))
+        painter.drawRoundedRect(icon_rect, 11, 11)
+
+        self._draw_icon(painter, icon_rect)
+
+        # Text
+        left = icon_rect.right() + 18
+        title_y = rect.top() + 30
+        painter.setPen(QColor("#092F49"))
+        painter.setFont(QFont("Segoe UI", 15, QFont.Bold))
+        painter.drawText(left, title_y + 4, self.code)
+
+        painter.setFont(QFont("Segoe UI", 12, QFont.DemiBold))
+        painter.drawText(left, title_y + 27, self.title)
+
+        painter.setPen(QColor("#607986"))
+        painter.setFont(QFont("Segoe UI", 10))
+        desc_rect = rect.adjusted(28, 103, -18, -35)
+        painter.drawText(
+            desc_rect,
+            Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap,
+            self.description
+        )
+
+        painter.setPen(self.accent)
+        painter.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        painter.drawText(
+            rect.adjusted(28, rect.height() - 38, -18, -10),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            "OPEN MODULE  →"
+        )
+        painter.end()
+
+    def _draw_icon(self, painter, rect):
+        pen = QPen(Qt.white, 3)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+
+        x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+        mid_y = y + h // 2
+
+        if self.icon_type == "digital":
+            path = QPainterPath()
+            path.moveTo(x + 12, mid_y + 9)
+            path.lineTo(x + 12, mid_y - 9)
+            path.lineTo(x + 25, mid_y - 9)
+            path.lineTo(x + 25, mid_y + 9)
+            path.lineTo(x + 38, mid_y + 9)
+            path.lineTo(x + 38, mid_y - 9)
+            path.lineTo(x + 50, mid_y - 9)
+            painter.drawPath(path)
+        elif self.icon_type == "analog":
+            path = QPainterPath()
+            path.moveTo(x + 9, mid_y + 4)
+            path.cubicTo(x + 18, mid_y - 18, x + 27, mid_y + 18, x + 36, mid_y - 4)
+            path.cubicTo(x + 43, mid_y - 18, x + 48, mid_y + 7, x + 53, mid_y - 4)
+            painter.drawPath(path)
+        else:
+            # Simple network icon for Modbus/TCP.
+            painter.drawLine(x + 31, y + 18, x + 31, y + 36)
+            painter.drawLine(x + 31, y + 36, x + 17, y + 49)
+            painter.drawLine(x + 31, y + 36, x + 45, y + 49)
+            for cx, cy in ((31, 15), (14, 50), (48, 50)):
+                painter.drawEllipse(cx + x - 6, cy + y - 6, 12, 12)
 
 
 class PortfolioView(QWidget):
@@ -52,66 +149,111 @@ class PortfolioView(QWidget):
     analog_input_clicked = Signal()
     analog_output_clicked = Signal()
     modbus_clicked = Signal()
+    logout_clicked = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
         self.setObjectName("portfolioView")
-
         self.setStyleSheet("""
-            QWidget#portfolioView {
-                background: transparent;
+            QWidget#portfolioView { background: #F5FAF6; }
+            QFrame#topBar {
+                background: rgba(255, 255, 255, 248);
+                border-bottom: 1px solid #DCE9E7;
             }
-
-            QFrame#portfolioCard {
+            QLabel#companyName {
+                color: #075276;
+                font-family: "Segoe UI";
+                font-size: 20px;
+                font-weight: 700;
+            }
+            QLabel#suiteName {
+                color: #70858E;
+                font-family: "Segoe UI";
+                font-size: 10px;
+                font-weight: 500;
+                letter-spacing: 2px;
+            }
+            QLabel#welcomeLabel {
+                color: #6D8993;
+                font-family: "Segoe UI";
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 4px;
+            }
+            QLabel#mainTitle {
+                color: #092F49;
+                font-family: "Segoe UI";
+                font-size: 38px;
+                font-weight: 750;
+            }
+            QLabel#subtitleLabel {
+                color: #5F7782;
+                font-family: "Segoe UI";
+                font-size: 15px;
+            }
+            QFrame#titleLine {
                 background: qlineargradient(
-                    x1: 0,
-                    y1: 0,
-                    x2: 1,
-                    y2: 1,
-                    stop: 0 #18B2BE,
-                    stop: 1 #20598F
+                    x1: 0, y1: 0, x2: 1, y2: 0,
+                    stop: 0 #18C66A, stop: 0.55 #16A7C7, stop: 1 #1976D2
                 );
-
-                border: 2px solid #19C63A;
+                border: none;
+                border-radius: 2px;
+            }
+            QLabel#sectionHint {
+                color: #718991;
+                font-family: "Segoe UI";
+                font-size: 10px;
+                font-weight: 600;
+                letter-spacing: 3px;
+            }
+            QLabel#tagline {
+                color: #6D8993;
+                font-family: "Segoe UI";
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 4px;
+            }
+            QFrame#taglineLine {
+                background: qlineargradient(
+                    x1: 0, y1: 0, x2: 1, y2: 0,
+                    stop: 0 #18C66A, stop: 1 #1976D2
+                );
+                border: none;
+            }
+            QPushButton#logoutButton {
+                color: white;
+                background: qlineargradient(
+                    x1: 0, y1: 0, x2: 1, y2: 0,
+                    stop: 0 #0785AA, stop: 1 #1664A7
+                );
+                border: none;
                 border-radius: 22px;
+                font-family: "Segoe UI";
+                font-size: 13px;
+                font-weight: 700;
             }
-
-            QLabel#portfolioTitle {
-                color: white;
-                background: transparent;
-                font-family: Cambria;
-                font-size: 29px;
-                font-weight: normal;
+            QPushButton#logoutButton:hover { background: #0B7195; }
+            QPushButton#logoutButton:pressed { background: #095C7A; }
+            QLabel#footerLabel {
+                color: #84979E;
+                font-family: "Segoe UI";
+                font-size: 9px;
+                letter-spacing: 2px;
             }
-
-            QPushButton#moduleButton {
-                color: white;
-                background: rgba(20, 102, 128, 190);
-                border: 1px solid #159E78;
+            QPushButton#footerButton {
+                color: #176B83;
+                background: rgba(255,255,255,235);
+                border: 1px solid #C5DFE2;
                 border-radius: 9px;
-
-                font-family: Cambria;
-                font-size: 23px;
-                font-weight: normal;
-
-                text-align: left;
-                padding-left: 15px;
+                padding: 7px 13px;
+                font-family: "Segoe UI";
+                font-size: 11px;
+                font-weight: 600;
             }
-
-            QPushButton#moduleButton:hover {
-                background: rgba(16, 92, 117, 220);
-            }
-
-            QPushButton#moduleButton:pressed {
-                background: rgba(12, 78, 100, 240);
-            }
-
-            QLabel#portfolioFooter {
-                color: #3C93A0;
-                background: transparent;
-                font-family: Cambria;
-                font-size: 18px;
+            QPushButton#footerButton:hover {
+                background: #FFFFFF;
+                border: 1px solid #5DB7C4;
             }
         """)
 
@@ -119,160 +261,192 @@ class PortfolioView(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Portfolio background image.
         self.background = PortfolioBackground(self)
         self.background.setGeometry(self.rect())
         self.background.lower()
 
-        root.addStretch()
+        # HEADER — same navigation/branding functionality.
+        top_bar = QFrame()
+        top_bar.setObjectName("topBar")
+        top_bar.setFixedHeight(92)
+        top_layout = QHBoxLayout(top_bar)
+        top_layout.setContentsMargins(28, 8, 28, 8)
+        top_layout.setSpacing(14)
 
-        card = QFrame()
-        card.setObjectName("portfolioCard")
-        card.setFixedSize(550, 480)
+        logo = QLabel()
+        logo.setFixedSize(72, 68)
+        logo.setAlignment(Qt.AlignCenter)
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        for logo_path in (
+            os.path.join(base_dir, "assets", "13.ico"),
+            os.path.join(base_dir, "assets", "NelumboLogo.png"),
+        ):
+            if os.path.exists(logo_path):
+                pixmap = QPixmap(logo_path)
+                if not pixmap.isNull():
+                    logo.setPixmap(pixmap.scaled(64, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                    break
+        top_layout.addWidget(logo)
 
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(
-            135,
-            65,
-            135,
-            55
+        brand_layout = QVBoxLayout()
+        brand_layout.setContentsMargins(0, 0, 0, 0)
+        brand_layout.setSpacing(1)
+        company = QLabel("Nelumbo Automation Pvt Ltd")
+        company.setObjectName("companyName")
+        suite = QLabel("CONNECTIVITY UTILITY SUITE")
+        suite.setObjectName("suiteName")
+        brand_layout.addWidget(company)
+        brand_layout.addWidget(suite)
+        top_layout.addLayout(brand_layout)
+        top_layout.addStretch()
+
+        root.addWidget(top_bar)
+
+        # HERO — large product image and balanced text, matching the reference.
+        hero = QWidget()
+        hero.setFixedHeight(365)
+        hero_layout = QHBoxLayout(hero)
+        hero_layout.setContentsMargins(62, 28, 48, 6)
+        hero_layout.setSpacing(18)
+
+        hero_text = QVBoxLayout()
+        hero_text.setContentsMargins(0, 12, 0, 8)
+        hero_text.setSpacing(6)
+        welcome = QLabel("WELCOME TO")
+        welcome.setObjectName("welcomeLabel")
+        title = QLabel("Nelumbo\nConnectivity Utility Suite")
+        title.setObjectName("mainTitle")
+        title.setWordWrap(True)
+        subtitle = QLabel("Configure and monitor your I/O modules with ease")
+        subtitle.setObjectName("subtitleLabel")
+        title_line = QFrame()
+        title_line.setObjectName("titleLine")
+        title_line.setFixedSize(220, 4)
+        hero_text.addWidget(welcome)
+        hero_text.addSpacing(4)
+        hero_text.addWidget(title)
+        hero_text.addWidget(subtitle)
+        hero_text.addSpacing(12)
+        hero_text.addWidget(title_line)
+        hero_text.addStretch()
+        hero_layout.addLayout(hero_text, 5)
+
+        product = QLabel()
+        product.setAlignment(Qt.AlignCenter)
+        product.setFixedSize(680, 350)
+        product_path = os.path.join(base_dir, "assets", "Nelumbo_Product_Image.png")
+        if os.path.exists(product_path):
+            pix = QPixmap(product_path)
+            if not pix.isNull():
+                # Complete transparent product image: no crop and no frame.
+                product.setPixmap(
+                    pix.scaled(
+                        650,
+                        340,
+                        Qt.KeepAspectRatio,
+                        Qt.SmoothTransformation,
+                    )
+                )
+        hero_layout.addWidget(product, alignment=Qt.AlignCenter)
+        root.addWidget(hero)
+
+        section_hint = QLabel("SELECT A MODULE TO GET STARTED")
+        section_hint.setObjectName("sectionHint")
+        section_hint.setAlignment(Qt.AlignCenter)
+        section_hint.setFixedHeight(38)
+        root.addWidget(section_hint)
+
+        # MODULE CARDS — custom painted to match the reference while remaining clickable.
+        cards = QHBoxLayout()
+        cards.setContentsMargins(28, 0, 28, 8)
+        cards.setSpacing(10)
+
+        self.digital_input_button = ModuleButton(
+            "DI", "Digital Input", "Configure and monitor\ndigital input modules", "#1976D2", "digital"
         )
-        card_layout.setSpacing(0)
-
-        title = QLabel("Remote I/O Modules")
-        title.setObjectName("portfolioTitle")
-        title.setAlignment(Qt.AlignCenter)
-
-        card_layout.addWidget(title)
-
-        # Green divider exactly below title.
-        divider = QFrame()
-        divider.setFixedHeight(2)
-
-        divider.setStyleSheet("""
-            QFrame {
-                background: #18C63B;
-                border: none;
-            }
-        """)
-
-        card_layout.addSpacing(7)
-        card_layout.addWidget(divider)
-        card_layout.addSpacing(25)
-
-        self.digital_input_button = self.create_button(
-            "•  Digital Input"
+        self.digital_output_button = ModuleButton(
+            "DO", "Digital Output", "Configure and control\ndigital output modules", "#20B96A", "digital"
+        )
+        self.analog_input_button = ModuleButton(
+            "AI", "Analog Input", "Configure and monitor\nanalog input modules", "#E88726", "analog"
+        )
+        self.analog_output_button = ModuleButton(
+            "AO", "Analog Output", "Configure and control\nanalog output modules", "#7250D5", "analog"
+        )
+        self.modbus_button = ModuleButton(
+            "TCP", "Modbus to TCP Gateway", "Configure Modbus to\nTCP settings", "#16B8C5", "network"
         )
 
-        self.digital_output_button = self.create_button(
-            "•  Digital Output"
-        )
+        # Give every card enough horizontal room for its title and description.
+        for button in (
+            self.digital_input_button,
+            self.digital_output_button,
+            self.analog_input_button,
+            self.analog_output_button,
+            self.modbus_button,
+        ):
+            button.setMinimumWidth(185)
 
-        self.analog_input_button = self.create_button(
-            "•  Analog Input"
-        )
+        for button in (
+            self.digital_input_button,
+            self.digital_output_button,
+            self.analog_input_button,
+            self.analog_output_button,
+            self.modbus_button,
+        ):
+            cards.addWidget(button, 1)
+        root.addLayout(cards)
 
-        self.analog_output_button = self.create_button(
-            "•  Analog Output"
-        )
+        logout_row = QHBoxLayout()
+        logout_row.setContentsMargins(0, 4, 0, 5)
+        logout_row.addStretch()
+        self.logout_button = QPushButton("LOG OUT")
+        self.logout_button.setObjectName("logoutButton")
+        self.logout_button.setFixedSize(190, 46)
+        self.logout_button.setCursor(Qt.PointingHandCursor)
+        self.logout_button.clicked.connect(self.handle_logout)
+        logout_row.addWidget(self.logout_button)
+        logout_row.addStretch()
+        root.addLayout(logout_row)
 
-        self.modbus_button = self.create_button(
-            "•  Modbus to TCP Gateway"
-        )
-
-        card_layout.addWidget(self.digital_input_button)
-        card_layout.addSpacing(18)
-
-        card_layout.addWidget(self.digital_output_button)
-        card_layout.addSpacing(18)
-
-        card_layout.addWidget(self.analog_input_button)
-        card_layout.addSpacing(18)
-
-        card_layout.addWidget(self.analog_output_button)
-        card_layout.addSpacing(18)
-
-        card_layout.addWidget(self.modbus_button)
-
-        root.addWidget(
-            card,
-            alignment=Qt.AlignCenter
-        )
-
-        # Page-2 footer outside the blue card.
-        footer_row = QHBoxLayout()
-        footer_row.setContentsMargins(0, 0, 18, 0)
-        footer_row.addStretch()
-
-        footer_text = QVBoxLayout()
-        footer_text.setSpacing(0)
-
-        product_portfolio = QLabel("Product Portfolio")
-        product_portfolio.setObjectName("portfolioFooter")
-        product_portfolio.setAlignment(Qt.AlignRight)
-
-        contact_us = QLabel("Contact Us")
-        contact_us.setObjectName("portfolioFooter")
-        contact_us.setAlignment(Qt.AlignRight)
-
-        # Make footer labels clickable without changing their appearance.
+        footer = QHBoxLayout()
+        footer.setContentsMargins(28, 4, 28, 12)
+        footer.setSpacing(9)
+        footer_label = QLabel("NELUMBO  |  CONNECTIVITY UTILITY SUITE")
+        footer_label.setObjectName("footerLabel")
+        footer.addWidget(footer_label)
+        footer.addStretch()
+        product_portfolio = QPushButton("▣  Product Portfolio")
+        product_portfolio.setObjectName("footerButton")
         product_portfolio.setCursor(Qt.PointingHandCursor)
+        product_portfolio.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://nelumbo.in/product-portfolio")))
+        contact_us = QPushButton("☎  Contact Us")
+        contact_us.setObjectName("footerButton")
         contact_us.setCursor(Qt.PointingHandCursor)
+        contact_us.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://nelumbo.in/contact-us")))
+        footer.addWidget(product_portfolio)
+        footer.addWidget(contact_us)
+        root.addLayout(footer)
 
-        product_portfolio.mousePressEvent = lambda event: QDesktopServices.openUrl(
-            QUrl("https://nelumbo.in/product-portfolio")
+        # NAVIGATION — unchanged.
+        self.digital_input_button.clicked.connect(self.digital_input_clicked.emit)
+        self.digital_output_button.clicked.connect(self.digital_output_clicked.emit)
+        self.analog_input_button.clicked.connect(self.analog_input_clicked.emit)
+        self.analog_output_button.clicked.connect(self.analog_output_clicked.emit)
+        self.modbus_button.clicked.connect(self.modbus_clicked.emit)
+
+    def handle_logout(self):
+        reply = QMessageBox.question(
+            self,
+            "Log Out",
+            "Are you sure you want to log out?",
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Cancel
         )
-
-        contact_us.mousePressEvent = lambda event: QDesktopServices.openUrl(
-            QUrl("https://nelumbo.in/contact-us")
-        )
-
-        footer_text.addWidget(product_portfolio)
-        footer_text.addWidget(contact_us)
-
-        footer_row.addLayout(footer_text)
-
-        # Push footer to the bottom.
-        root.addStretch()
-        root.addLayout(footer_row)
-
-        # Navigation.
-        self.digital_input_button.clicked.connect(
-            self.digital_input_clicked.emit
-        )
-
-        self.digital_output_button.clicked.connect(
-            self.digital_output_clicked.emit
-        )
-
-        self.analog_input_button.clicked.connect(
-            self.analog_input_clicked.emit
-        )
-
-        self.analog_output_button.clicked.connect(
-            self.analog_output_clicked.emit
-        )
-
-        self.modbus_button.clicked.connect(
-            self.modbus_clicked.emit
-        )
+        if reply == QMessageBox.Yes:
+            self.logout_clicked.emit()
 
     def resizeEvent(self, event):
-        # Keep the background image behind the full page.
         self.background.setGeometry(self.rect())
         self.background.lower()
-
         super().resizeEvent(event)
-
-    def create_button(self, text):
-        button = QPushButton(text)
-
-        button.setObjectName("moduleButton")
-
-        button.setFixedHeight(35)
-
-        button.setCursor(
-            Qt.PointingHandCursor
-        )
-
-        return button

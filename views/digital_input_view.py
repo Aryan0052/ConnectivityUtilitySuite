@@ -106,6 +106,11 @@ class DigitalInputView(QWidget):
         )
 
         self._serial_connection = None
+        self._connected_baud_rate = None
+        self._apply_target_baud_rate = None
+        self._apply_baud_timer = QTimer(self)
+        self._apply_baud_timer.setSingleShot(True)
+        self._apply_baud_timer.timeout.connect(self._switch_to_applied_baud)
         self._apply_pending = False
         self._apply_buffer = bytearray()
         self._apply_timer = QTimer(self)
@@ -117,6 +122,19 @@ class DigitalInputView(QWidget):
         self._refresh_timer = QTimer(self)
         self._refresh_timer.timeout.connect(self._check_refresh_response)
         self._refresh_elapsed = 0
+
+        self._run_active = False
+        self._run_waiting_rx = False
+        self._run_buffer = bytearray()
+        self._run_elapsed = 0
+        self._run_timer = QTimer(self)
+        self._run_timer.timeout.connect(self._run_tx_rx_cycle)
+
+        self._connection_monitor_timer = QTimer(self)
+        self._connection_monitor_timer.timeout.connect(
+            self._check_connection_status
+        )
+        self._connection_monitor_timer.start(500)
 
         self.terminal_messages = ["Device Terminal Ready"]
 
@@ -246,6 +264,31 @@ class DigitalInputView(QWidget):
                 font-family: Cambria;
                 font-size: 18px;
                 font-weight: bold;
+            }
+
+            QPushButton#run {
+                background: qlineargradient(
+                    x1: 0,
+                    y1: 0,
+                    x2: 1,
+                    y2: 0,
+                    stop: 0 #13A9B6,
+                    stop: 1 #18548D
+                );
+                color: white;
+                border: none;
+                border-radius: 7px;
+                font-family: Cambria;
+                font-size: 18px;
+                font-weight: bold;
+            }
+
+            QPushButton#run:hover {
+                background: #16839F;
+            }
+
+            QPushButton#run:pressed {
+                background: #14738A;
             }
 
             QPushButton#refresh {
@@ -406,6 +449,15 @@ class DigitalInputView(QWidget):
         left_layout.addWidget(
             self.connect_button
         )
+
+        # Digital Input timeout message shown directly below CONNECT.
+        self.digital_input_timeout_label = QLabel("Digital Input Timeout")
+        self.digital_input_timeout_label.setAlignment(Qt.AlignCenter)
+        self.digital_input_timeout_label.setStyleSheet(
+            "color: #D00000; background: transparent; font-family: Cambria; font-size: 15px; font-weight: bold;"
+        )
+        self.digital_input_timeout_label.hide()
+        left_layout.addWidget(self.digital_input_timeout_label)
 
         left_layout.addSpacing(25)
 
@@ -747,100 +799,105 @@ class DigitalInputView(QWidget):
         right_layout.setSpacing(0)
 
         channel_title = QLabel("Digital Input")
-        channel_title.setObjectName("sectionTitle")
         channel_title.setAlignment(Qt.AlignCenter)
-        right_layout.addWidget(channel_title)
-        right_layout.addSpacing(25)
+        channel_title.setFixedSize(265, 30)
+        channel_title.setStyleSheet("""
+            QLabel {
+                background: qlineargradient(
+                    x1: 0,
+                    y1: 0,
+                    x2: 1,
+                    y2: 0,
+                    stop: 0 #13A9B6,
+                    stop: 1 #18548D
+                );
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-family: Cambria;
+                font-size: 22px;
+                font-weight: normal;
+            }
+        """)
+
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.addStretch()
+        title_row.addWidget(channel_title)
+        title_row.addStretch()
+        right_layout.addLayout(title_row)
+        right_layout.addSpacing(20)
 
         channel_columns = QHBoxLayout()
-        channel_columns.setContentsMargins(20, 0, 20, 0)
+        channel_columns.setContentsMargins(48, 0, 48, 0)
         channel_columns.setSpacing(55)
 
         left_channels = QVBoxLayout()
-        left_channels.setSpacing(16)
+        left_channels.setSpacing(30)
         right_channels = QVBoxLayout()
-        right_channels.setSpacing(16)
+        right_channels.setSpacing(30)
 
         self._di_buttons = []
 
-        for channel in range(1, 9):
+        def add_channel_row(layout, channel):
             row = QHBoxLayout()
-            row.setSpacing(28)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(44)
 
-            label = QLabel(f"DI {channel}")
-            label.setObjectName("label")
-            label.setFixedWidth(55)
-
-            button = QPushButton("OFF")
-            button.setCheckable(True)
-            button.setFixedSize(58, 27)
-            button.setCursor(Qt.PointingHandCursor)
-            button.setStyleSheet("""
-                QPushButton {
+            led = QLabel()
+            led.setFixedSize(41, 41)
+            led.setStyleSheet("""
+                QLabel {
                     background: #E00000;
-                    color: white;
-                    border: none;
-                    border-radius: 4px;
-                    font-family: Cambria;
-                    font-size: 13px;
-                    font-weight: bold;
-                }
-                QPushButton:checked {
-                    background: #00B52A;
-                    color: white;
+                    border: 1px solid #222222;
+                    border-radius: 11px;
                 }
             """)
-            button.toggled.connect(
-                lambda checked, btn=button: btn.setText("ON" if checked else "OFF")
-            )
 
+            label = QLabel(f"DI-{channel}")
+            label.setAlignment(Qt.AlignCenter)
+            label.setFixedSize(83, 30)
+            label.setStyleSheet("""
+                QLabel {
+                    background: #F1F5F2;
+                    color: #111111;
+                    border: 1px solid #BFC4C1;
+                    border-radius: 8px;
+                    font-family: Cambria;
+                    font-size: 15px;
+                }
+            """)
+
+            row.addWidget(led)
             row.addWidget(label)
-            row.addWidget(button)
             row.addStretch()
-            left_channels.addLayout(row)
-            self._di_buttons.append(button)
+            layout.addLayout(row)
+            self._di_buttons.append(led)
+
+        for channel in range(1, 9):
+            add_channel_row(left_channels, channel)
 
         for channel in range(9, 17):
-            row = QHBoxLayout()
-            row.setSpacing(28)
-
-            label = QLabel(f"DI {channel}")
-            label.setObjectName("label")
-            label.setFixedWidth(55)
-
-            button = QPushButton("OFF")
-            button.setCheckable(True)
-            button.setFixedSize(58, 27)
-            button.setCursor(Qt.PointingHandCursor)
-            button.setStyleSheet("""
-                QPushButton {
-                    background: #E00000;
-                    color: white;
-                    border: none;
-                    border-radius: 4px;
-                    font-family: Cambria;
-                    font-size: 13px;
-                    font-weight: bold;
-                }
-                QPushButton:checked {
-                    background: #00B52A;
-                    color: white;
-                }
-            """)
-            button.toggled.connect(
-                lambda checked, btn=button: btn.setText("ON" if checked else "OFF")
-            )
-
-            row.addWidget(label)
-            row.addWidget(button)
-            row.addStretch()
-            right_channels.addLayout(row)
-            self._di_buttons.append(button)
+            add_channel_row(right_channels, channel)
 
         channel_columns.addLayout(left_channels)
         channel_columns.addLayout(right_channels)
         right_layout.addLayout(channel_columns)
         right_layout.addStretch()
+
+        run_layout = QHBoxLayout()
+        run_layout.addStretch()
+
+        self.run_button = QPushButton("RUN")
+        self.run_button.setObjectName("run")
+        self.run_button.setFixedSize(135, 31)
+        self.run_button.setCursor(Qt.PointingHandCursor)
+
+        run_layout.addWidget(self.run_button)
+        run_layout.addStretch()
+
+        right_layout.addLayout(run_layout)
+        right_layout.addSpacing(20)
 
         content.addWidget(
             left
@@ -858,6 +915,7 @@ class DigitalInputView(QWidget):
 
         # Keep references for RTU actions.
         self._status = status
+        self._status_dot = status_dot
         self._connect_button = self.connect_button
         self._slave_id = self.slave_id
         self._baud = self.baud_rate
@@ -875,6 +933,9 @@ class DigitalInputView(QWidget):
         self.refresh_button.clicked.connect(
             self.handle_refresh
         )
+        self.run_button.clicked.connect(
+            self.handle_run
+        )
 
     def add_terminal_message(self, message):
         self.terminal_messages.append(str(message))
@@ -883,6 +944,16 @@ class DigitalInputView(QWidget):
         )
         scrollbar = self.terminal_message.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+
+    
+    def _set_status_color(self, color):
+        self._status.setStyleSheet(
+            f"color: {color}; font-weight: bold; font-size: 16px;"
+        )
+        if hasattr(self, "_status_dot"):
+            self._status_dot.setStyleSheet(
+                f"color: {color}; background: transparent; font-size: 16px;"
+            )
 
     def show_com_port_popup(self):
         ports = [port.device for port in list_ports.comports()]
@@ -938,15 +1009,15 @@ class DigitalInputView(QWidget):
                     int(self._baud.currentText()),
                     timeout=1
                 )
+                self._connected_baud_rate = int(self._baud.currentText())
                 self._status.setText("Connected")
-                self._status.setStyleSheet(
-                    "color: #00C928; font-weight: bold; font-size: 16px;"
-                )
+                self._set_status_color("#00C928")
                 self._connect_button.setText("DISCONNECT")
                 dialog.accept()
             except Exception:
                 self._serial_connection = None
                 self._status.setText("Connection Error")
+                self._set_status_color("#D00000")
                 self._connect_button.setText("CONNECT")
                 dialog.reject()
 
@@ -954,11 +1025,56 @@ class DigitalInputView(QWidget):
         cancel_button.clicked.connect(dialog.reject)
         dialog.exec()
 
+    def _check_connection_status(self):
+        if self._serial_connection is None:
+            return
+
+        try:
+            current_port = self._serial_connection.port
+
+            if (
+                not self._serial_connection.is_open
+                or current_port not in {
+                    port.device for port in list_ports.comports()
+                }
+            ):
+                print("COM Port disconnected:", current_port)
+
+                self._stop_run()
+
+                self._apply_pending = False
+                self._apply_timer.stop()
+                self._apply_buffer.clear()
+
+                self._refresh_pending = False
+                self._refresh_timer.stop()
+                self._refresh_buffer.clear()
+
+                try:
+                    self._serial_connection.close()
+                except Exception:
+                    pass
+
+                self._serial_connection = None
+                self._connect_button.setText("CONNECT")
+                self._status.setText("COM Port Not Found")
+                self._set_status_color("#D00000")
+
+        except Exception:
+            self._serial_connection = None
+            self._stop_run()
+            self._connect_button.setText("CONNECT")
+            self._status.setText("COM Port Not Found")
+            self._set_status_color("#D00000")
+
     def handle_connect(self):
         if self._connect_button.text() == "DISCONNECT":
+            self._stop_run()
             self._apply_pending = False
             self._apply_timer.stop()
+            self._apply_baud_timer.stop()
             self._apply_buffer.clear()
+            self._apply_target_baud_rate = None
             self._refresh_pending = False
             self._refresh_timer.stop()
             self._refresh_buffer.clear()
@@ -970,9 +1086,7 @@ class DigitalInputView(QWidget):
                 self._serial_connection = None
 
             self._status.setText("Not Connected")
-            self._status.setStyleSheet(
-                "color: #10C51F; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#10C51F")
             self._connect_button.setText("CONNECT")
             return
 
@@ -985,6 +1099,7 @@ class DigitalInputView(QWidget):
             or not self._serial_connection.is_open
         ):
             self._status.setText("COM Port not connected")
+            self._set_status_color("#D00000")
             return
 
         slave_text = self._slave_id.text().strip()
@@ -1000,6 +1115,7 @@ class DigitalInputView(QWidget):
             return
 
         baud_rate = self._baud.currentText()
+        target_baud_rate = int(baud_rate)
         command = f"SID={slave_id},MBD_BAUD={baud_rate}\n"
 
         if self._apply_pending:
@@ -1008,20 +1124,44 @@ class DigitalInputView(QWidget):
         try:
             self._serial_connection.reset_input_buffer()
             self._apply_buffer.clear()
+
+            # Send the settings command using the baud rate currently
+            # active on the device. The local baud rate is changed only
+            # after the device has had time to process the command.
             self._serial_connection.write(command.encode("ascii"))
             self._serial_connection.flush()
+            print(f"RTU SETTINGS TX: SID={slave_id}, BAUD={baud_rate}")
 
+            self._apply_target_baud_rate = target_baud_rate
             self._apply_pending = True
             self._apply_elapsed = 0
             self._apply_timer.start(20)
+
+            if (
+                self._connected_baud_rate is not None
+                and target_baud_rate != self._connected_baud_rate
+            ):
+                self._apply_baud_timer.start(150)
         except Exception:
             self._apply_pending = False
             self._apply_timer.stop()
             self._apply_buffer.clear()
             self._status.setText("RTU Settings Not Applied")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
+
+    def _switch_to_applied_baud(self):
+        if (
+            self._serial_connection is None
+            or not self._serial_connection.is_open
+            or self._apply_target_baud_rate is None
+        ):
+            return
+
+        try:
+            self._serial_connection.baudrate = self._apply_target_baud_rate
+            self._connected_baud_rate = self._apply_target_baud_rate
+        except Exception:
+            pass
 
     def _check_apply_response(self):
         if not self._apply_pending:
@@ -1040,9 +1180,9 @@ class DigitalInputView(QWidget):
         try:
             waiting = self._serial_connection.in_waiting
             if waiting > 0:
-                self._apply_buffer.extend(
-                    self._serial_connection.read(waiting)
-                )
+                chunk = self._serial_connection.read(waiting)
+                self._apply_buffer.extend(chunk)
+                print(f"RTU SETTINGS RX: {chunk!r}")
 
             # Wait for the complete response because serial data can arrive
             # in multiple chunks.
@@ -1054,40 +1194,40 @@ class DigitalInputView(QWidget):
                 if complete_response == b"OK:Settings Updated\r\n":
                     self._apply_pending = False
                     self._apply_timer.stop()
+                    self._apply_baud_timer.stop()
+                    self._apply_target_baud_rate = None
                     self._apply_buffer.clear()
                     self.add_terminal_message("OK: Settings Applied")
                     self._status.setText("RTU Settings Applied")
-                    self._status.setStyleSheet(
-                        "color: #00C928; font-weight: bold; font-size: 16px;"
-                    )
+                    self._set_status_color("#00C928")
                     return
 
                 self._apply_pending = False
                 self._apply_timer.stop()
+                self._apply_baud_timer.stop()
+                self._apply_target_baud_rate = None
                 self._apply_buffer.clear()
                 self._status.setText("RTU Settings Not Applied")
-                self._status.setStyleSheet(
-                    "color: #D00000; font-weight: bold; font-size: 16px;"
-                )
+                self._set_status_color("#D00000")
                 return
 
             self._apply_elapsed += 20
             if self._apply_elapsed >= 2000:
                 self._apply_pending = False
                 self._apply_timer.stop()
+                self._apply_baud_timer.stop()
+                self._apply_target_baud_rate = None
                 self._apply_buffer.clear()
                 self._status.setText("RTU Settings Not Applied")
-                self._status.setStyleSheet(
-                    "color: #D00000; font-weight: bold; font-size: 16px;"
-                )
+                self._set_status_color("#D00000")
         except Exception:
             self._apply_pending = False
             self._apply_timer.stop()
+            self._apply_baud_timer.stop()
+            self._apply_target_baud_rate = None
             self._apply_buffer.clear()
             self._status.setText("RTU Settings Not Applied")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
 
     def handle_refresh(self):
         if (
@@ -1114,9 +1254,7 @@ class DigitalInputView(QWidget):
             self._refresh_timer.stop()
             self._refresh_buffer.clear()
             self._status.setText("Refresh Error")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
 
     def _check_refresh_response(self):
         if not self._refresh_pending:
@@ -1176,18 +1314,14 @@ class DigitalInputView(QWidget):
                                 self._refresh_timer.stop()
                                 self._refresh_buffer.clear()
                                 self._status.setText("Configuration Refreshed")
-                                self._status.setStyleSheet(
-                                    "color: #00C928; font-weight: bold; font-size: 16px;"
-                                )
+                                self._set_status_color("#00C928")
                                 return
 
                 self._refresh_pending = False
                 self._refresh_timer.stop()
                 self._refresh_buffer.clear()
                 self._status.setText("Refresh Error")
-                self._status.setStyleSheet(
-                    "color: #D00000; font-weight: bold; font-size: 16px;"
-                )
+                self._set_status_color("#D00000")
                 return
 
             self._refresh_elapsed += 20
@@ -1196,19 +1330,242 @@ class DigitalInputView(QWidget):
                 self._refresh_timer.stop()
                 self._refresh_buffer.clear()
                 self._status.setText("Refresh Error")
-                self._status.setStyleSheet(
-                    "color: #D00000; font-weight: bold; font-size: 16px;"
-                )
+                self._set_status_color("#D00000")
         except Exception:
             self._refresh_pending = False
             self._refresh_timer.stop()
             self._refresh_buffer.clear()
             self._status.setText("Refresh Error")
-            self._status.setStyleSheet(
-                "color: #D00000; font-weight: bold; font-size: 16px;"
-            )
+            self._set_status_color("#D00000")
+
+    def _modbus_crc(self, data):
+        crc = 0xFFFF
+
+        for byte in data:
+            crc ^= byte
+
+            for _ in range(8):
+                if crc & 0x0001:
+                    crc = (crc >> 1) ^ 0xA001
+                else:
+                    crc >>= 1
+
+        return bytes([
+            crc & 0xFF,
+            (crc >> 8) & 0xFF
+        ])
+
+    def handle_run(self):
+        if self._run_active:
+            print("DI RUN: STOP requested")
+            self._stop_run()
+            return
+
+        if (
+            self._serial_connection is None
+            or not self._serial_connection.is_open
+        ):
+            print("DI RUN: COM Port Not Found")
+            self._status.setText("COM Port Not Found")
+            return
+
+        print("DI RUN: STARTED")
+        print("DI RUN: COM Port:", self._serial_connection.port)
+        print("DI RUN: Baud Rate:", self._baud.currentText())
+
+        self.digital_input_timeout_label.hide()
+        self._run_active = True
+        self._run_waiting_rx = False
+        self._run_buffer.clear()
+        self._run_elapsed = 0
+        self.run_button.setText("STOP")
+        self._run_timer.start(20)
+
+    def _stop_run(self):
+        print("DI RUN: TX/RX STOPPED")
+        self._run_active = False
+        self._run_waiting_rx = False
+        self._run_buffer.clear()
+        self._run_elapsed = 0
+        self._run_timer.stop()
+
+        if hasattr(self, "run_button"):
+            self.run_button.setText("RUN")
+
+    def _handle_run_com_port_lost(self):
+        print("DI RUN: COM PORT LOST - STOPPING")
+        self._stop_run()
+
+        try:
+            if self._serial_connection is not None:
+                self._serial_connection.close()
+        except Exception:
+            pass
+        finally:
+            self._serial_connection = None
+
+        self._connect_button.setText("CONNECT")
+        self._status.setText("COM Port Not Found")
+        self._set_status_color("#D00000")
+
+    def _run_tx_rx_cycle(self):
+        if not self._run_active:
+            self._run_timer.stop()
+            return
+
+        if (
+            self._serial_connection is None
+            or not self._serial_connection.is_open
+        ):
+            self._handle_run_com_port_lost()
+            return
+
+        try:
+            current_port = self._serial_connection.port
+            available_ports = {
+                port.device for port in list_ports.comports()
+            }
+
+            if current_port not in available_ports:
+                print("DI RUN: COM Port disappeared:", current_port)
+                self._handle_run_com_port_lost()
+                return
+
+            # Always read the current Slave ID from RTU Settings.
+            slave_id = int(self._slave_id.text().strip())
+
+            if not self._run_waiting_rx:
+                # Confirmed Digital Input RUN request:
+                # 02 01 00 00 00 10 + Modbus CRC
+                request = bytes([
+                    slave_id,
+                    0x01,
+                    0x00, 0x00,
+                    0x00, 0x10,
+                ])
+                command = request + self._modbus_crc(request)
+
+                self._serial_connection.reset_input_buffer()
+                self._run_buffer.clear()
+                self._serial_connection.write(command)
+                self._serial_connection.flush()
+
+                print(
+                    "DI RUN TX:",
+                    command.hex(" ").upper()
+                )
+
+                self._run_waiting_rx = True
+                self._run_elapsed = 0
+                return
+
+            waiting = self._serial_connection.in_waiting
+
+            if waiting > 0:
+                self._run_buffer.extend(
+                    self._serial_connection.read(waiting)
+                )
+
+            # Digital Input RUN response for 16 inputs:
+            # Slave ID + 01 + 02 + DATA1 + DATA2 + Modbus CRC
+            expected_length = 7
+
+            if len(self._run_buffer) >= expected_length:
+                response = bytes(self._run_buffer[:expected_length])
+
+                print(
+                    "DI RUN RX:",
+                    response.hex(" ").upper()
+                )
+
+                # Validate Slave ID and Modbus function/byte count.
+                expected_header = bytes([
+                    slave_id,
+                    0x01,
+                    0x02,
+                ])
+
+                if response[:3] == expected_header:
+                    response_without_crc = response[:-2]
+                    expected_crc = self._modbus_crc(response_without_crc)
+                    received_crc = response[-2:]
+
+                    if received_crc == expected_crc:
+                        # DATA1 = DI1-DI8, DATA2 = DI9-DI16
+                        di_data_1 = response[3]
+                        di_data_2 = response[4]
+
+                        print(
+                            "DI RUN STATUS:",
+                            f"DATA1=0x{di_data_1:02X}, DATA2=0x{di_data_2:02X}"
+                        )
+
+                        for index in range(8):
+                            is_on = bool(
+                                di_data_1 & (1 << index)
+                            )
+                            self._di_buttons[index].setStyleSheet(
+                                f"""
+                                QLabel {{
+                                    background: {"#00C928" if is_on else "#E00000"};
+                                    border: 1px solid #222222;
+                                    border-radius: 11px;
+                                }}
+                                """
+                            )
+
+                        for index in range(8):
+                            is_on = bool(
+                                di_data_2 & (1 << index)
+                            )
+                            self._di_buttons[index + 8].setStyleSheet(
+                                f"""
+                                QLabel {{
+                                    background: {"#00C928" if is_on else "#E00000"};
+                                    border: 1px solid #222222;
+                                    border-radius: 11px;
+                                }}
+                                """
+                            )
+
+                        self._run_waiting_rx = False
+                        self._run_buffer.clear()
+                        self._run_elapsed = 0
+                        return
+
+                print(
+                    "DI RUN RX: INVALID/UNEXPECTED RESPONSE:",
+                    response.hex(" ").upper()
+                )
+                self._run_waiting_rx = False
+                self._run_buffer.clear()
+                self._run_elapsed = 0
+
+            self._run_elapsed += 20
+
+            # If no valid RX is received within 2 seconds, stop this
+            # Digital Input request and report a timeout.
+            if self._run_elapsed >= 2000:
+                print("DI RUN TIMEOUT: No RX received within 2 seconds")
+                self._run_waiting_rx = False
+                self._run_buffer.clear()
+                self._run_elapsed = 0
+                self._run_timer.stop()
+                self._run_active = False
+                self.run_button.setText("RUN")
+                self.digital_input_timeout_label.show()
+                self._status.setText("Digital Input Timeout")
+                self._set_status_color("#D00000")
+                self.add_terminal_message("Digital Input Timeout")
+                return
+
+        except Exception as error:
+            print("DI RUN ERROR:", repr(error))
+            self._handle_run_com_port_lost()
 
     def handle_back(self):
+        self._connection_monitor_timer.stop()
+        self._stop_run()
         self._apply_pending = False
         self._apply_timer.stop()
         self._apply_buffer.clear()
@@ -1226,9 +1583,7 @@ class DigitalInputView(QWidget):
 
         self._connect_button.setText("CONNECT")
         self._status.setText("Not Connected")
-        self._status.setStyleSheet(
-            "color: #10C51F; font-weight: bold; font-size: 16px;"
-        )
+        self._set_status_color("#10C51F")
         self.terminal_messages = ["Device Terminal Ready"]
         self.terminal_message.setPlainText("Device Terminal Ready")
         self.back_clicked.emit()
