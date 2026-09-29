@@ -118,10 +118,22 @@ class AnalogInputView(QWidget):
     def __init__(self):
         super().__init__()
 
+        # Left RTU Settings communication.
+        self._rtu_serial_connection = None
+        self._rtu_connected_port = None
+        self._rtu_com_port_monitor_timer = QTimer(self)
+        self._rtu_com_port_monitor_timer.timeout.connect(
+            self._check_rtu_com_port_connection
+        )
+        self._rtu_com_port_monitor_timer.start(1000)
+
+        # Right Analog Input communication.
         self._serial_connection = None
         self._connected_port = None
         self._com_port_monitor_timer = QTimer(self)
-        self._com_port_monitor_timer.timeout.connect(self._check_com_port_connection)
+        self._com_port_monitor_timer.timeout.connect(
+            self._check_com_port_connection
+        )
         self._com_port_monitor_timer.start(1000)
 
         self._apply_pending = False
@@ -131,6 +143,7 @@ class AnalogInputView(QWidget):
         self._apply_elapsed = 0
 
         self._connected_baud_rate = None
+        self._rtu_connected_baud_rate = None
         self._apply_target_baud_rate = None
         self._apply_baud_timer = QTimer(self)
         self._apply_baud_timer.setSingleShot(True)
@@ -502,11 +515,11 @@ class AnalogInputView(QWidget):
         protocol.setFixedHeight(38)
         left_layout.addWidget(protocol)
 
-        section = QLabel("RTU Slave Settings")
+        section = QLabel("RTU Device Settings")
         section.setObjectName("sectionTitle")
         left_layout.addWidget(section)
 
-        slave_label = QLabel("Slave ID (1-63)")
+        slave_label = QLabel("Device ID (1-63)")
         slave_label.setObjectName("smallLabel")
         left_layout.addWidget(slave_label)
 
@@ -514,7 +527,7 @@ class AnalogInputView(QWidget):
         slave_id.setFixedHeight(38)
         left_layout.addWidget(slave_id)
 
-        valid = QLabel("Valid Slave IDs: 1 to 63")
+        valid = QLabel("Valid Device IDs: 1 to 63")
         valid.setStyleSheet("""
             color: #555555;
             font-family: Cambria;
@@ -614,6 +627,56 @@ class AnalogInputView(QWidget):
             20
         )
         right_layout.setSpacing(0)
+
+        # ---------------------------------------------------------
+        # ANALOG INPUT COMMUNICATION SETTINGS
+        # ---------------------------------------------------------
+        communication_row = QHBoxLayout()
+        communication_row.setContentsMargins(0, 0, 0, 12)
+        communication_row.setSpacing(14)
+
+        analog_slave_label = QLabel("Device ID")
+        analog_slave_label.setObjectName("smallLabel")
+        communication_row.addWidget(analog_slave_label)
+
+        analog_slave_id = QLineEdit("1")
+        analog_slave_id.setFixedSize(75, 38)
+        analog_slave_id.setValidator(QIntValidator(1, 63, self))
+        communication_row.addWidget(analog_slave_id)
+
+        analog_baud_label = QLabel("Baud Rate")
+        analog_baud_label.setObjectName("smallLabel")
+        communication_row.addWidget(analog_baud_label)
+
+        analog_baud = QComboBox()
+        analog_baud.addItems(["9600", "19200", "38400", "57600", "115200"])
+        analog_baud.setFixedSize(120, 38)
+        communication_row.addWidget(analog_baud)
+
+        analog_connect = QPushButton("CONNECT")
+        analog_connect.setObjectName("connectButton")
+        analog_connect.setFixedSize(190, 44)
+        analog_connect.setStyleSheet("""
+            QPushButton {
+                background-color: #1884A1;
+                color: white;
+                border: none;
+                border-radius: 7px;
+                font-family: Cambria;
+                font-size: 18px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #14758F;
+            }
+            QPushButton:pressed {
+                background-color: #126B82;
+            }
+        """)
+        communication_row.addWidget(analog_connect)
+
+        communication_row.addStretch()
+        right_layout.addLayout(communication_row)
 
         # ---------------------------------------------------------
         # ANALOG INPUT CHANNELS
@@ -864,9 +927,12 @@ class AnalogInputView(QWidget):
         root.addWidget(scroll_area, 1)
 
         self._status = status
-        self._connect_button = connect
-        self._slave_id = slave_id
-        self._baud = baud
+
+        # Left-side RTU Settings controls.
+        self._rtu_connect_button = connect
+        self._rtu_slave_id = slave_id
+        self._rtu_baud = baud
+
         self.connect_button = connect
         self.slave_id = slave_id
         self.baud_rate = baud
@@ -874,8 +940,17 @@ class AnalogInputView(QWidget):
         self.refresh_button = refresh
         self.back_button = back
 
+        # Right-side Analog Input communication controls.
+        self._connect_button = analog_connect
+        self._slave_id = analog_slave_id
+        self._baud = analog_baud
+        self.analog_connect_button = analog_connect
+        self.analog_slave_id = analog_slave_id
+        self.analog_baud_rate = analog_baud
+
         self.back_button.clicked.connect(self.handle_back)
-        self.connect_button.clicked.connect(self.handle_connect)
+        self._rtu_connect_button.clicked.connect(self.handle_connect)
+        self._connect_button.clicked.connect(self.handle_analog_connect)
         self.apply_button.clicked.connect(self.handle_apply_rtu)
         self.refresh_button.clicked.connect(self.handle_refresh)
 
@@ -943,36 +1018,36 @@ class AnalogInputView(QWidget):
             try:
                 import serial
 
-                self._serial_connection = serial.Serial(
+                self._rtu_serial_connection = serial.Serial(
                     selected_port,
-                    int(self._baud.currentText()),
+                    int(self._rtu_baud.currentText()),
                     timeout=1
                 )
 
-                self._connected_port = selected_port
-                self._connected_baud_rate = int(self._baud.currentText())
+                self._rtu_connected_port = selected_port
+                self._rtu_connected_baud_rate = int(self._rtu_baud.currentText())
                 self._status.setText("Connected")
                 self._set_status_color("#00C928")
-                self._connect_button.setText("DISCONNECT")
+                self._rtu_connect_button.setText("DISCONNECT")
                 dialog.accept()
 
             except Exception:
-                self._serial_connection = None
-                self._connected_port = None
+                self._rtu_serial_connection = None
+                self._rtu_connected_port = None
                 self._status.setText("Connection Error")
                 self._set_status_color("#D00000")
-                self._connect_button.setText("CONNECT")
+                self._rtu_connect_button.setText("CONNECT")
                 dialog.reject()
 
         connect_button.clicked.connect(connect_selected)
         cancel_button.clicked.connect(dialog.reject)
         dialog.exec()
 
-    def _check_com_port_connection(self):
+    def _check_rtu_com_port_connection(self):
         if (
-            self._serial_connection is None
-            or not self._serial_connection.is_open
-            or self._connected_port is None
+            self._rtu_serial_connection is None
+            or not self._rtu_serial_connection.is_open
+            or self._rtu_connected_port is None
         ):
             return
 
@@ -981,10 +1056,10 @@ class AnalogInputView(QWidget):
                 port.device for port in list_ports.comports()
             }
 
-            if self._connected_port not in available_ports:
+            if self._rtu_connected_port not in available_ports:
                 self._apply_baud_timer.stop()
                 self._apply_target_baud_rate = None
-                self._connected_baud_rate = None
+                self._rtu_connected_baud_rate = None
                 self._apply_pending = False
                 self._apply_timer.stop()
                 self._apply_buffer.clear()
@@ -1008,23 +1083,23 @@ class AnalogInputView(QWidget):
                 self._channel_offset_type = None
 
                 try:
-                    self._serial_connection.close()
+                    self._rtu_serial_connection.close()
                 finally:
-                    self._serial_connection = None
-                    self._connected_port = None
+                    self._rtu_serial_connection = None
+                    self._rtu_connected_port = None
 
                 self._status.setText("COM Port Disconnected")
                 self._set_status_color("#D00000")
-                self._connect_button.setText("CONNECT")
+                self._rtu_connect_button.setText("CONNECT")
 
         except Exception as exc:
             print("COM Port Monitor Error:", exc)
 
     def handle_connect(self):
-        if self._connect_button.text() == "DISCONNECT":
+        if self._rtu_connect_button.text() == "DISCONNECT":
             self._apply_baud_timer.stop()
             self._apply_target_baud_rate = None
-            self._connected_baud_rate = None
+            self._rtu_connected_baud_rate = None
             self._apply_pending = False
             self._apply_timer.stop()
             self._apply_buffer.clear()
@@ -1040,44 +1115,214 @@ class AnalogInputView(QWidget):
                 self._channel_get_buffer[channel].clear()
 
             try:
-                if self._serial_connection is not None:
-                    self._serial_connection.close()
+                if self._rtu_serial_connection is not None:
+                    self._rtu_serial_connection.close()
             finally:
-                self._serial_connection = None
-                self._connected_port = None
+                self._rtu_serial_connection = None
+                self._rtu_connected_port = None
 
             self._status.setText("Not Connected")
             self._set_status_color("#00C928")
-            self._connect_button.setText("CONNECT")
+            self._rtu_connect_button.setText("CONNECT")
             return
 
         self.show_com_port_popup()
 
+
+    def show_analog_com_port_popup(self):
+        ports = [port.device for port in list_ports.comports()]
+
+        if not ports:
+            self._status.setText("COM Port Not Found")
+            self._set_status_color("#D00000")
+            return
+
+        from PySide6.QtWidgets import QDialog
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Analog Input COM Port")
+        dialog.setFixedSize(360, 190)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+
+        title = QLabel("Select COM Port")
+        title.setFont(QFont("Cambria", 16))
+        layout.addWidget(title)
+
+        port_box = QComboBox()
+        port_box.addItems(ports)
+        port_box.setFont(QFont("Cambria", 16))
+        port_box.setFixedHeight(40)
+        layout.addWidget(port_box)
+
+        button_row = QHBoxLayout()
+        connect_button = QPushButton("CONNECT")
+        cancel_button = QPushButton("CANCEL")
+
+        for button in (connect_button, cancel_button):
+            button.setFont(QFont("Cambria", 16))
+            button.setFixedHeight(38)
+
+        button_row.addWidget(connect_button)
+        button_row.addWidget(cancel_button)
+        layout.addLayout(button_row)
+
+        def connect_selected():
+            selected_port = port_box.currentText().strip()
+
+            if not selected_port:
+                dialog.reject()
+                return
+
+            try:
+                import serial
+
+                self._serial_connection = serial.Serial(
+                    selected_port,
+                    int(self._baud.currentText()),
+                    timeout=1,
+                )
+
+                self._connected_port = selected_port
+                self._connected_baud_rate = int(self._baud.currentText())
+                self._connect_button.setText("DISCONNECT")
+                dialog.accept()
+
+            except Exception as exc:
+                print("Analog Input Connection Error:", exc)
+                self._serial_connection = None
+                self._connected_port = None
+                self._connect_button.setText("CONNECT")
+                self._status.setText("Connection Error")
+                self._set_status_color("#D00000")
+                dialog.reject()
+
+        connect_button.clicked.connect(connect_selected)
+        cancel_button.clicked.connect(dialog.reject)
+        dialog.exec()
+
+    def handle_analog_connect(self):
+        if self._connect_button.text() == "DISCONNECT":
+            self._clear_analog_pending_states()
+
+            try:
+                if self._serial_connection is not None:
+                    self._serial_connection.close()
+            except Exception:
+                pass
+            finally:
+                self._serial_connection = None
+                self._connected_port = None
+
+            self._connect_button.setText("CONNECT")
+            self._status.setText("Not Connected")
+            self._set_status_color("#00C928")
+            return
+
+        self.show_analog_com_port_popup()
+
+    def _clear_analog_pending_states(self):
+        self._refresh_pending = False
+        self._refresh_timer.stop()
+        self._refresh_buffer.clear()
+
+        self._channel1_iptype_pending = False
+        self._channel1_iptype_timer.stop()
+        self._channel1_iptype_buffer.clear()
+
+        for channel in range(1, 9):
+            self._channel_iptype_pending[channel] = False
+            self._channel_iptype_buffer[channel].clear()
+
+            self._channel_offset_pending[channel] = False
+            self._channel_offset_buffer[channel].clear()
+
+            self._channel_get_pending[channel] = False
+            self._channel_get_buffer[channel].clear()
+
+        self._channel_offset_timer.stop()
+        self._channel_offset_active_channel = None
+        self._channel_offset_type = None
+
+        self._channel_get_timer.stop()
+        self._channel_get_active_channel = None
+
+    def _sync_analog_baud_rate(self):
+        """Use the currently selected Analog Input baud rate on the
+        already-open right-side COM port without reconnecting.
+        """
+        if self._serial_connection is None or not self._serial_connection.is_open:
+            return False
+
+        try:
+            selected_baud = int(self._baud.currentText())
+            if self._serial_connection.baudrate != selected_baud:
+                self._serial_connection.baudrate = selected_baud
+                self._serial_connection.reset_input_buffer()
+                self._serial_connection.reset_output_buffer()
+                self._connected_baud_rate = selected_baud
+                print(f"Analog Input Baud Rate changed to: {selected_baud}")
+            return True
+        except Exception as exc:
+            print(f"Analog Input Baud Rate change error: {exc}")
+            return False
+
+    def _check_com_port_connection(self):
+        if (
+            self._serial_connection is None
+            or not self._serial_connection.is_open
+            or self._connected_port is None
+        ):
+            return
+
+        try:
+            available_ports = {
+                port.device for port in list_ports.comports()
+            }
+
+            if self._connected_port not in available_ports:
+                self._clear_analog_pending_states()
+
+                try:
+                    self._serial_connection.close()
+                finally:
+                    self._serial_connection = None
+                    self._connected_port = None
+
+                self._connect_button.setText("CONNECT")
+                self._status.setText("COM Port Disconnected")
+                self._set_status_color("#D00000")
+
+        except Exception as exc:
+            print("Analog Input COM Port Monitor Error:", exc)
+
     def handle_apply_rtu(self):
         if (
-            self._connect_button.text() != "DISCONNECT"
-            or self._serial_connection is None
-            or not self._serial_connection.is_open
+            self._rtu_connect_button.text() != "DISCONNECT"
+            or self._rtu_serial_connection is None
+            or not self._rtu_serial_connection.is_open
         ):
             self._status.setText("COM Port not connected")
             self._set_status_color("#D00000")
             return
 
-        slave_text = self._slave_id.text().strip()
+        slave_text = self._rtu_slave_id.text().strip()
 
         try:
             slave_id = int(slave_text)
         except ValueError:
-            self._status.setText("Slave ID must be 1 to 63")
+            self._status.setText("Device ID must be 1 to 63")
             self._set_status_color("#D00000")
             return
 
         if not 1 <= slave_id <= 63:
-            self._status.setText("Slave ID must be 1 to 63")
+            self._status.setText("Device ID must be 1 to 63")
             self._set_status_color("#D00000")
             return
 
-        baud_rate = self._baud.currentText()
+        baud_rate = self._rtu_baud.currentText()
         target_baud_rate = int(baud_rate)
         command = f"SID={slave_id},MBD_BAUD={baud_rate}\n"
 
@@ -1085,12 +1330,12 @@ class AnalogInputView(QWidget):
             return
 
         try:
-            self._serial_connection.reset_input_buffer()
+            self._rtu_serial_connection.reset_input_buffer()
             self._apply_buffer.clear()
             # Send using the currently active device baud; switch the local
             # serial port after the device has had time to process the command.
-            self._serial_connection.write(command.encode("ascii"))
-            self._serial_connection.flush()
+            self._rtu_serial_connection.write(command.encode("ascii"))
+            self._rtu_serial_connection.flush()
             print(f"RTU SETTINGS TX: SID={slave_id}, BAUD={baud_rate}")
 
             self._apply_target_baud_rate = target_baud_rate
@@ -1099,8 +1344,8 @@ class AnalogInputView(QWidget):
             self._apply_timer.start(20)
 
             if (
-                self._connected_baud_rate is not None
-                and target_baud_rate != self._connected_baud_rate
+                self._rtu_connected_baud_rate is not None
+                and target_baud_rate != self._rtu_connected_baud_rate
             ):
                 self._apply_baud_timer.start(150)
 
@@ -1115,14 +1360,14 @@ class AnalogInputView(QWidget):
 
     def _switch_to_applied_baud(self):
         if (
-            self._serial_connection is None
-            or not self._serial_connection.is_open
+            self._rtu_serial_connection is None
+            or not self._rtu_serial_connection.is_open
             or self._apply_target_baud_rate is None
         ):
             return
 
         try:
-            self._serial_connection.baudrate = self._apply_target_baud_rate
+            self._rtu_serial_connection.baudrate = self._apply_target_baud_rate
             self._connected_baud_rate = self._apply_target_baud_rate
         except Exception:
             pass
@@ -1133,8 +1378,8 @@ class AnalogInputView(QWidget):
             return
 
         if (
-            self._serial_connection is None
-            or not self._serial_connection.is_open
+            self._rtu_serial_connection is None
+            or not self._rtu_serial_connection.is_open
         ):
             self._apply_baud_timer.stop()
             self._apply_target_baud_rate = None
@@ -1144,10 +1389,10 @@ class AnalogInputView(QWidget):
             return
 
         try:
-            waiting = self._serial_connection.in_waiting
+            waiting = self._rtu_serial_connection.in_waiting
 
             if waiting > 0:
-                chunk = self._serial_connection.read(waiting)
+                chunk = self._rtu_serial_connection.read(waiting)
                 self._apply_buffer.extend(chunk)
                 print(f"RTU SETTINGS RX: {chunk!r}")
 
@@ -1200,8 +1445,8 @@ class AnalogInputView(QWidget):
 
     def handle_refresh(self):
         if (
-            self._serial_connection is None
-            or not self._serial_connection.is_open
+            self._rtu_serial_connection is None
+            or not self._rtu_serial_connection.is_open
         ):
             self._status.setText("COM Port Not Connected")
             self._set_status_color("#D00000")
@@ -1211,10 +1456,10 @@ class AnalogInputView(QWidget):
             return
 
         try:
-            self._serial_connection.reset_input_buffer()
+            self._rtu_serial_connection.reset_input_buffer()
             self._refresh_buffer.clear()
-            self._serial_connection.write(b"GETCFG\n")
-            self._serial_connection.flush()
+            self._rtu_serial_connection.write(b"GETCFG\n")
+            self._rtu_serial_connection.flush()
 
             self._refresh_pending = True
             self._refresh_elapsed = 0
@@ -1233,8 +1478,8 @@ class AnalogInputView(QWidget):
             return
 
         if (
-            self._serial_connection is None
-            or not self._serial_connection.is_open
+            self._rtu_serial_connection is None
+            or not self._rtu_serial_connection.is_open
         ):
             self._refresh_pending = False
             self._refresh_timer.stop()
@@ -1244,11 +1489,11 @@ class AnalogInputView(QWidget):
             return
 
         try:
-            waiting = self._serial_connection.in_waiting
+            waiting = self._rtu_serial_connection.in_waiting
 
             if waiting > 0:
                 self._refresh_buffer.extend(
-                    self._serial_connection.read(waiting)
+                    self._rtu_serial_connection.read(waiting)
                 )
 
             if b"\r\n" in self._refresh_buffer:
@@ -1287,10 +1532,10 @@ class AnalogInputView(QWidget):
                                 parsed_slave_id is not None
                                 and 1 <= parsed_slave_id <= 63
                                 and parsed_baud is not None
-                                and self._baud.findText(baud_text) >= 0
+                                and self._rtu_baud.findText(baud_text) >= 0
                             ):
-                                self._slave_id.setText(slave_text)
-                                self._baud.setCurrentText(baud_text)
+                                self._rtu_slave_id.setText(slave_text)
+                                self._rtu_baud.setCurrentText(baud_text)
 
                                 self._refresh_pending = False
                                 self._refresh_timer.stop()
@@ -1423,14 +1668,14 @@ class AnalogInputView(QWidget):
         try:
             slave_id = int(slave_text)
         except ValueError:
-            print("FAILED: Invalid Slave ID")
-            self._status.setText("Slave ID must be 1 to 63")
+            print("FAILED: Invalid Device ID")
+            self._status.setText("Device ID must be 1 to 63")
             self._set_status_color("#D00000")
             return
 
         if not 1 <= slave_id <= 63:
             print("FAILED: Slave ID must be 1 to 63")
-            self._status.setText("Slave ID must be 1 to 63")
+            self._status.setText("Device ID must be 1 to 63")
             self._set_status_color("#D00000")
             return
 
@@ -1470,6 +1715,11 @@ class AnalogInputView(QWidget):
             print(
                 f"FAILED: Channel {selected_channel} I/P Type request already pending"
             )
+            return
+
+        if not self._sync_analog_baud_rate():
+            self._status.setText("Baud Rate Error")
+            self._set_status_color("#D00000")
             return
 
         try:
@@ -1789,14 +2039,14 @@ class AnalogInputView(QWidget):
         try:
             slave_id = int(self._slave_id.text().strip())
         except ValueError:
-            print("FAILED: Invalid Slave ID")
-            self._status.setText("Slave ID must be 1 to 63")
+            print("FAILED: Invalid Device ID")
+            self._status.setText("Device ID must be 1 to 63")
             self._set_status_color("#D00000")
             return
 
         if not 1 <= slave_id <= 63:
             print("FAILED: Slave ID must be 1 to 63")
-            self._status.setText("Slave ID must be 1 to 63")
+            self._status.setText("Device ID must be 1 to 63")
             self._set_status_color("#D00000")
             return
 
@@ -1843,6 +2093,11 @@ class AnalogInputView(QWidget):
 
         print("TX FRAME HEX:", frame.hex(" ").upper())
         print("TX FRAME BYTES:", frame)
+
+        if not self._sync_analog_baud_rate():
+            self._status.setText("Baud Rate Error")
+            self._set_status_color("#D00000")
+            return
 
         try:
             self._serial_connection.reset_input_buffer()
@@ -2141,14 +2396,14 @@ class AnalogInputView(QWidget):
         try:
             slave_id = int(slave_text)
         except ValueError:
-            print("FAILED: Invalid Slave ID")
-            self._status.setText("Slave ID must be 1 to 63")
+            print("FAILED: Invalid Device ID")
+            self._status.setText("Device ID must be 1 to 63")
             self._set_status_color("#D00000")
             return
 
         if not 1 <= slave_id <= 63:
             print("FAILED: Slave ID must be 1 to 63")
-            self._status.setText("Slave ID must be 1 to 63")
+            self._status.setText("Device ID must be 1 to 63")
             self._set_status_color("#D00000")
             return
 
@@ -2177,6 +2432,11 @@ class AnalogInputView(QWidget):
         # --------------------------------------------------------
         # STEP 6: Send RAW BINARY bytes.
         # --------------------------------------------------------
+        if not self._sync_analog_baud_rate():
+            self._status.setText("Baud Rate Error")
+            self._set_status_color("#D00000")
+            return
+
         try:
             self._serial_connection.reset_input_buffer()
             self._channel_get_buffer[selected_channel].clear()
@@ -2581,6 +2841,19 @@ class AnalogInputView(QWidget):
             finally:
                 self._serial_connection = None
 
+        if self._rtu_serial_connection is not None:
+            try:
+                self._rtu_serial_connection.close()
+            except Exception:
+                pass
+            finally:
+                self._rtu_serial_connection = None
+
+        self._connected_port = None
+        self._rtu_connected_port = None
+        self._connect_button.setText("CONNECT")
+        self._rtu_connect_button.setText("CONNECT")
+
         self.reset_channel_view()
 
         self._connect_button.setText("CONNECT")
@@ -2589,3 +2862,5 @@ class AnalogInputView(QWidget):
 
         self.terminal_messages = ["Device Terminal Ready"]
         self.terminal_message.setPlainText("Device Terminal Ready")
+        # Reset the Analog Input page first, then navigate back.
+        self.back_clicked.emit()

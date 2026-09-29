@@ -1,8 +1,9 @@
 ﻿import os
 
-from PySide6.QtCore import Qt, Signal, QUrl
+from PySide6.QtCore import Qt, Signal, QUrl, QTimer, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, Property
 from PySide6.QtGui import QPainter, QPixmap, QDesktopServices, QColor, QPen, QBrush, QFont, QPainterPath
 from PySide6.QtWidgets import (
+    QGraphicsOpacityEffect,
     QWidget,
     QVBoxLayout,
     QLabel,
@@ -140,6 +141,223 @@ class ModuleButton(QPushButton):
             painter.drawLine(x + 31, y + 36, x + 45, y + 49)
             for cx, cy in ((31, 15), (14, 50), (48, 50)):
                 painter.drawEllipse(cx + x - 6, cy + y - 6, 12, 12)
+
+
+class ProductCarousel(QWidget):
+    """Single-product hero carousel with a smooth slide/tilt transition."""
+
+    def __init__(self, image_paths, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(1160, 470)
+
+        self._paths = image_paths
+        self._pixmaps = [QPixmap(path) for path in image_paths]
+        self._index = 0
+
+        self._animating = False
+        self._direction = 1
+        self._progress = 0.0
+        self._animation = None
+        self._dots = []
+
+        self._create_navigation()
+        self._update_dots()
+
+        self._timer = QTimer(self)
+        self._timer.setInterval(5000)
+        self._timer.timeout.connect(self.next_slide)
+        self._timer.start()
+
+    def _create_navigation(self):
+        # No arrow buttons: the carousel changes automatically.
+        self._left_button = QPushButton(self)
+        self._right_button = QPushButton(self)
+        self._left_button.hide()
+        self._right_button.hide()
+
+        for _ in self._pixmaps:
+            dot = QLabel(self)
+            dot.setFixedSize(14, 14)
+            self._dots.append(dot)
+
+    def _update_dots(self):
+        if not self._dots:
+            return
+
+        total_width = len(self._dots) * 14 + (len(self._dots) - 1) * 10
+        start_x = (self.width() - total_width) // 2
+
+        for i, dot in enumerate(self._dots):
+            dot.move(start_x + i * 24, 438)
+
+            if i == self._index:
+                dot.setFixedSize(18, 14)
+                dot.setStyleSheet(
+                    "background: #159FC0; border-radius: 7px; border: none;"
+                )
+            else:
+                dot.setFixedSize(14, 14)
+                dot.setStyleSheet(
+                    "background: #DCE6E8; border-radius: 7px; border: none;"
+                )
+
+    @staticmethod
+    def _ease(value):
+        if value < 0.5:
+            return 4 * value * value * value
+        return 1 - pow(-2 * value + 2, 3) / 2
+
+    def _draw_product(self, painter, index, cx, cy, scale, rotation, opacity):
+        if index < 0 or index >= len(self._pixmaps):
+            return
+
+        pixmap = self._pixmaps[index]
+        if pixmap.isNull() or opacity <= 0:
+            return
+
+        # Large hero product. Only ONE product is painted at a time.
+        scaled = pixmap.scaled(
+            780,
+            410,
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation,
+        )
+
+        painter.save()
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        painter.setOpacity(max(0.0, min(1.0, opacity)))
+        painter.translate(cx, cy)
+        painter.rotate(rotation)
+        painter.scale(scale, scale)
+        painter.drawPixmap(
+            -scaled.width() // 2,
+            -scaled.height() // 2,
+            scaled,
+        )
+        painter.restore()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+
+        if not self._pixmaps:
+            painter.end()
+            return
+
+        progress = self._ease(self._progress) if self._animating else 0.0
+
+        # Normal state: exactly one large product.
+        if not self._animating:
+            self._draw_product(
+                painter,
+                self._index,
+                self.width() // 2,
+                205,
+                1.0,
+                0,
+                1.0,
+            )
+            painter.end()
+            return
+
+        # During the transition, ONLY ONE product is ever painted.
+        # Phase 1: current product exits completely.
+        # Phase 2: a short empty gap.
+        # Phase 3: next product enters.
+        if progress < 0.45:
+            local = progress / 0.45
+            eased = self._ease(local)
+
+            if self._direction > 0:
+                cx = (self.width() // 2) - (eased * 520)
+                rotation = -8 * eased
+            else:
+                cx = (self.width() // 2) + (eased * 520)
+                rotation = 8 * eased
+
+            scale = 1.0 - (0.08 * eased)
+            opacity = 1.0 - eased
+
+            self._draw_product(
+                painter, self._index, cx, 205, scale, rotation, opacity
+            )
+
+        elif progress < 0.55:
+            # Intentional short gap: no product is shown.
+            pass
+
+        else:
+            local = (progress - 0.55) / 0.45
+            eased = self._ease(local)
+
+            next_index = (self._index + self._direction) % len(self._pixmaps)
+
+            if self._direction > 0:
+                cx = (self.width() // 2) + 520 - (eased * 520)
+                rotation = 8 - (8 * eased)
+            else:
+                cx = (self.width() // 2) - 520 + (eased * 520)
+                rotation = -8 + (8 * eased)
+
+            scale = 0.92 + (0.08 * eased)
+            opacity = eased
+
+            self._draw_product(
+                painter, next_index, cx, 205, scale, rotation, opacity
+            )
+
+        painter.end()
+
+    def _start_slide(self, direction):
+        if self._animating or len(self._pixmaps) < 2:
+            return
+
+        self._direction = direction
+        self._animating = True
+        self._progress = 0.0
+        self._timer.stop()
+
+        self._animation = QPropertyAnimation(
+            self,
+            b"carouselProgress",
+            self,
+        )
+        self._animation.setDuration(1250)
+        self._animation.setStartValue(0.0)
+        self._animation.setEndValue(1.0)
+        self._animation.setEasingCurve(QEasingCurve.InOutCubic)
+        self._animation.finished.connect(self._finish_slide)
+        self._animation.start()
+
+    def next_slide(self):
+        self._start_slide(1)
+
+    def previous_slide(self):
+        self._start_slide(-1)
+
+    def _finish_slide(self):
+        total = len(self._pixmaps)
+        self._index = (self._index + self._direction) % total
+        self._progress = 0.0
+        self._animating = False
+        self._animation = None
+        self._update_dots()
+        self._timer.start()
+        self.update()
+
+    def _get_progress(self):
+        return self._progress
+
+    def _set_progress(self, value):
+        self._progress = float(value)
+        self.update()
+
+    carouselProgress = Property(
+        float,
+        _get_progress,
+        _set_progress,
+    )
 
 
 class PortfolioView(QWidget):
@@ -300,14 +518,25 @@ class PortfolioView(QWidget):
         top_layout.addLayout(brand_layout)
         top_layout.addStretch()
 
+        tagline_top = QVBoxLayout()
+        tagline_top.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        tagline = QLabel("ENGINEERING\nCONNECTED\nPOSSIBILITIES")
+        tagline.setObjectName("tagline")
+        tagline.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        tagline_top.addWidget(tagline)
+        top_line = QFrame()
+        top_line.setObjectName("taglineLine")
+        top_line.setFixedSize(118, 4)
+        tagline_top.addWidget(top_line, alignment=Qt.AlignRight)
+        top_layout.addLayout(tagline_top)
         root.addWidget(top_bar)
 
         # HERO — large product image and balanced text, matching the reference.
         hero = QWidget()
-        hero.setFixedHeight(365)
+        hero.setFixedHeight(430)
         hero_layout = QHBoxLayout(hero)
-        hero_layout.setContentsMargins(62, 28, 48, 6)
-        hero_layout.setSpacing(18)
+        hero_layout.setContentsMargins(42, 18, 18, 0)
+        hero_layout.setSpacing(8)
 
         hero_text = QVBoxLayout()
         hero_text.setContentsMargins(0, 12, 0, 8)
@@ -331,23 +560,19 @@ class PortfolioView(QWidget):
         hero_text.addStretch()
         hero_layout.addLayout(hero_text, 5)
 
-        product = QLabel()
-        product.setAlignment(Qt.AlignCenter)
-        product.setFixedSize(680, 350)
-        product_path = os.path.join(base_dir, "assets", "Nelumbo_Product_Image.png")
-        if os.path.exists(product_path):
-            pix = QPixmap(product_path)
-            if not pix.isNull():
-                # Complete transparent product image: no crop and no frame.
-                product.setPixmap(
-                    pix.scaled(
-                        650,
-                        340,
-                        Qt.KeepAspectRatio,
-                        Qt.SmoothTransformation,
-                    )
-                )
-        hero_layout.addWidget(product, alignment=Qt.AlignCenter)
+        product_paths = [
+            os.path.join(base_dir, "assets", name)
+            for name in ("1.png", "2.png", "3.png", "4.png")
+        ]
+        product_paths = [path for path in product_paths if os.path.exists(path)]
+        if product_paths:
+            self.product_carousel = ProductCarousel(product_paths)
+            hero_layout.addWidget(self.product_carousel, alignment=Qt.AlignCenter)
+        else:
+            product = QLabel()
+            product.setAlignment(Qt.AlignCenter)
+            product.setFixedSize(680, 340)
+            hero_layout.addWidget(product, alignment=Qt.AlignCenter)
         root.addWidget(hero)
 
         section_hint = QLabel("SELECT A MODULE TO GET STARTED")
@@ -358,8 +583,8 @@ class PortfolioView(QWidget):
 
         # MODULE CARDS — custom painted to match the reference while remaining clickable.
         cards = QHBoxLayout()
-        cards.setContentsMargins(28, 0, 28, 8)
-        cards.setSpacing(10)
+        cards.setContentsMargins(38, 0, 38, 8)
+        cards.setSpacing(14)
 
         self.digital_input_button = ModuleButton(
             "DI", "Digital Input", "Configure and monitor\ndigital input modules", "#1976D2", "digital"
@@ -376,16 +601,6 @@ class PortfolioView(QWidget):
         self.modbus_button = ModuleButton(
             "TCP", "Modbus to TCP Gateway", "Configure Modbus to\nTCP settings", "#16B8C5", "network"
         )
-
-        # Give every card enough horizontal room for its title and description.
-        for button in (
-            self.digital_input_button,
-            self.digital_output_button,
-            self.analog_input_button,
-            self.analog_output_button,
-            self.modbus_button,
-        ):
-            button.setMinimumWidth(185)
 
         for button in (
             self.digital_input_button,

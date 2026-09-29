@@ -154,7 +154,7 @@ class OutputToggle(QPushButton):
         knob_y = (self.height() - knob_d) / 2
         knob_x = self.width() - knob_d - 3 if self._is_on else 3
 
-        painter.setBrush(QBrush("#20D10F" if self._is_on else "#FF2222"))
+        painter.setBrush(QBrush("#20D10F" if self._is_on else "#A0A0A0"))
         painter.drawEllipse(QRectF(knob_x, knob_y, knob_d, knob_d))
 
         painter.setPen(QPen(Qt.white))
@@ -195,6 +195,7 @@ class DigitalOutputView(QWidget):
         )
 
         self._serial_connection = None
+        self._rtu_serial_connection = None
 
         self._connection_monitor_timer = QTimer(self)
         self._connection_monitor_timer.timeout.connect(self._check_connection_status)
@@ -205,6 +206,11 @@ class DigitalOutputView(QWidget):
         self._apply_timer = QTimer(self)
         self._apply_timer.timeout.connect(self._check_apply_response)
         self._apply_elapsed = 0
+        self._connected_baud_rate = None
+        self._apply_target_baud_rate = None
+        self._apply_baud_timer = QTimer(self)
+        self._apply_baud_timer.setSingleShot(True)
+        self._apply_baud_timer.timeout.connect(self._switch_to_applied_baud)
 
         self._refresh_pending = False
         self._refresh_buffer = bytearray()
@@ -942,7 +948,94 @@ class DigitalOutputView(QWidget):
         title_row.addWidget(title)
         title_row.addStretch()
         right_layout.addLayout(title_row)
-        right_layout.addSpacing(18)
+        right_layout.addSpacing(10)
+
+        # DIGITAL OUTPUT COMMUNICATION SETTINGS
+        # Separate from the original RTU Settings controls on the left.
+        do_settings = QFrame()
+        do_settings.setStyleSheet("""
+            QFrame {
+                background: #F7FAF8;
+                border: 1px solid #BFC4C1;
+                border-radius: 8px;
+            }
+        """)
+
+        do_settings_layout = QHBoxLayout(do_settings)
+        do_settings_layout.setContentsMargins(12, 8, 12, 8)
+        do_settings_layout.setSpacing(10)
+
+        do_connect = QPushButton("CONNECT")
+        do_connect.setObjectName("connect")
+        do_connect.setFixedSize(125, 31)
+        do_connect.setCursor(Qt.PointingHandCursor)
+
+        do_slave_label = QLabel("Device ID")
+        do_slave_label.setObjectName("label")
+
+        self.do_slave_id = QLineEdit()
+        self.do_slave_id.setText("1")
+        self.do_slave_id.setFixedWidth(75)
+
+        do_baud_label = QLabel("Baud Rate")
+        do_baud_label.setObjectName("label")
+
+        self.do_baud_rate = QComboBox()
+        self.do_baud_rate.addItems([
+            "9600",
+            "19200",
+            "38400",
+            "57600",
+            "115200"
+        ])
+        self.do_baud_rate.setCurrentText("9600")
+        self.do_baud_rate.setFixedWidth(105)
+
+        self.do_baud_rate.view().setStyleSheet("""
+            QAbstractItemView {
+                background: #F1F5F2;
+                color: #333333;
+                border: 1px solid #C8CFCC;
+                selection-background-color: #DDEBE6;
+                selection-color: #222222;
+                font-family: Cambria;
+                font-size: 12px;
+            }
+
+            QAbstractItemView::item {
+                background: #F1F5F2;
+                color: #333333;
+                padding: 4px 8px;
+                min-height: 20px;
+            }
+
+            QAbstractItemView::item:hover {
+                background: #E5EFEB;
+                color: #222222;
+            }
+        """)
+
+        # Requested order: Device ID -> Baud Rate -> CONNECT
+        do_settings_layout.addWidget(do_slave_label)
+        do_settings_layout.addWidget(self.do_slave_id)
+        do_settings_layout.addSpacing(10)
+        do_settings_layout.addWidget(do_baud_label)
+        do_settings_layout.addWidget(self.do_baud_rate)
+        do_settings_layout.addSpacing(12)
+        do_settings_layout.addWidget(do_connect)
+        do_settings_layout.addStretch()
+
+        right_layout.addWidget(do_settings)
+        right_layout.addSpacing(8)
+
+        # Two independent COM connections:
+        # left CONNECT -> RTU Settings
+        # right CONNECT -> Digital Output TX/RX
+        self._do_connect_button = do_connect
+        self._rtu_connect_button = self.connect_button
+
+        do_connect.clicked.connect(self.handle_connect)
+        self.connect_button.clicked.connect(self.handle_rtu_connect)
 
         self._output_states = {channel: False for channel in range(1, 17)}
         self._output_status_buttons = {}
@@ -1060,15 +1153,20 @@ class DigitalOutputView(QWidget):
 
         # Keep references for RTU actions.
         self._status = status
-        self._connect_button = self.connect_button
-        self._slave_id = self.slave_id
-        self._baud = self.baud_rate
+        self._connect_button = self._do_connect_button
+
+        # RTU Settings (left side)
+        self._rtu_slave_id = self.slave_id
+        self._rtu_baud = self.baud_rate
+
+        # Digital Output (right side)
+        self._slave_id = self.do_slave_id
+        self._baud = self.do_baud_rate
 
         # BACK NAVIGATION
         self.back_button.clicked.connect(
             self.handle_back
         )
-        self.connect_button.clicked.connect(self.handle_connect)
         self.apply_button.clicked.connect(self.handle_apply_rtu)
         self.refresh_button.clicked.connect(self.handle_refresh)
 
@@ -1123,6 +1221,7 @@ class DigitalOutputView(QWidget):
             ])
             command = request + self._modbus_crc(request)
 
+            self._sync_do_baud_rate()
             self._serial_connection.reset_input_buffer()
             self._do1_buffer.clear()
             self._serial_connection.write(command)
@@ -1306,6 +1405,7 @@ class DigitalOutputView(QWidget):
             ])
             command = request + self._modbus_crc(request)
 
+            self._sync_do_baud_rate()
             self._serial_connection.reset_input_buffer()
             self._all_output_buffer.clear()
             self._all_output_elapsed = 0
@@ -1416,7 +1516,7 @@ class DigitalOutputView(QWidget):
             "color: #D00000; font-weight: bold; font-size: 16px;"
         )
         self._status_dot.setStyleSheet(
-            "color: #D00000; background: transparent; font-family: Cambria; font-size: 16px;"
+            "color: #A0A0A0; background: transparent; font-family: Cambria; font-size: 16px;"
         )
 
     def _set_status_color(self, color):
@@ -1513,7 +1613,7 @@ class DigitalOutputView(QWidget):
 
                 self._serial_connection = serial.Serial(
                     selected_port,
-                    int(self._baud.currentText()),
+                    int(self.do_baud_rate.currentText()),
                     timeout=1
                 )
 
@@ -1538,55 +1638,138 @@ class DigitalOutputView(QWidget):
         dialog.exec()
 
     def _check_connection_status(self):
-        if self._serial_connection is None:
-            return
+        available_ports = {port.device for port in list_ports.comports()}
 
-        try:
-            current_port = self._serial_connection.port
-            available_ports = {port.device for port in list_ports.comports()}
+        # DIGITAL OUTPUT COM connection
+        if self._serial_connection is not None:
+            try:
+                current_port = self._serial_connection.port
+                if (
+                    not self._serial_connection.is_open
+                    or current_port not in available_ports
+                ):
+                    print("Digital Output COM Port disconnected:", current_port)
+                    self._disconnect_after_device_loss()
+            except Exception:
+                self._disconnect_after_device_loss()
 
-            if (
-                not self._serial_connection.is_open
-                or current_port not in available_ports
-            ):
-                print("COM Port disconnected:", current_port)
-
-                self._run_output_active = False
-                self._run_output_timer.stop()
-                self.run_output_button.setText("RUN")
-
+        # RTU SETTINGS COM connection is independent from Digital Output.
+        if self._rtu_serial_connection is not None:
+            try:
+                current_port = self._rtu_serial_connection.port
+                if (
+                    not self._rtu_serial_connection.is_open
+                    or current_port not in available_ports
+                ):
+                    print("RTU Settings COM Port disconnected:", current_port)
+                    try:
+                        self._rtu_serial_connection.close()
+                    except Exception:
+                        pass
+                    self._rtu_serial_connection = None
+                    self._rtu_connect_button.setText("CONNECT")
+                    self._apply_pending = False
+                    self._apply_timer.stop()
+                    self._apply_buffer.clear()
+                    self._set_error_status("RTU Settings COM Port Disconnected")
+            except Exception:
+                self._rtu_serial_connection = None
+                self._rtu_connect_button.setText("CONNECT")
                 self._apply_pending = False
                 self._apply_timer.stop()
                 self._apply_buffer.clear()
+                self._set_error_status("RTU Settings COM Port Disconnected")
 
-                self._refresh_pending = False
-                self._refresh_timer.stop()
-                self._refresh_buffer.clear()
+    def handle_rtu_connect(self):
+        if self._rtu_connect_button.text() == "DISCONNECT":
+            self._apply_pending = False
+            self._apply_timer.stop()
+            self._apply_baud_timer.stop()
+            self._apply_target_baud_rate = None
+            self._apply_buffer.clear()
+            try:
+                if self._rtu_serial_connection is not None:
+                    self._rtu_serial_connection.close()
+            finally:
+                self._rtu_serial_connection = None
+            self._connected_baud_rate = None
+            self._rtu_connect_button.setText("CONNECT")
+            self._set_error_status("RTU Settings COM Disconnected")
+            return
 
-                self._do_refresh_pending = False
-                self._do_refresh_timer.stop()
-                self._do_refresh_buffer.clear()
+        self.show_rtu_com_port_popup()
 
-                self._do1_pending = False
-                self._do1_timer.stop()
-                self._do1_buffer.clear()
+    def show_rtu_com_port_popup(self):
+        ports = [port.device for port in list_ports.comports()]
+        if not ports:
+            self._set_error_status("COM Port Not Found")
+            return
 
-                try:
-                    self._serial_connection.close()
-                except Exception:
-                    pass
+        from PySide6.QtWidgets import QDialog
 
-                self._serial_connection = None
-                self._connect_button.setText("CONNECT")
-                self._set_error_status("COM Port Disconnected")
+        dialog = QDialog(self)
+        dialog.setWindowTitle("RTU Settings COM Port")
+        dialog.setFixedSize(360, 190)
 
-        except Exception:
-            self._serial_connection = None
-            self._run_output_active = False
-            self._run_output_timer.stop()
-            self.run_output_button.setText("RUN")
-            self._connect_button.setText("CONNECT")
-            self._set_error_status("COM Port Disconnected")
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+
+        title = QLabel("Select RTU Settings COM Port")
+        title.setFont(QFont("Cambria", 16))
+        layout.addWidget(title)
+
+        port_box = QComboBox()
+        port_box.addItems(ports)
+        port_box.setFont(QFont("Cambria", 16))
+        port_box.setFixedHeight(40)
+        layout.addWidget(port_box)
+
+        button_row = QHBoxLayout()
+        connect_button = QPushButton("CONNECT")
+        cancel_button = QPushButton("CANCEL")
+        for button in (connect_button, cancel_button):
+            button.setFont(QFont("Cambria", 16))
+            button.setFixedHeight(38)
+        button_row.addWidget(connect_button)
+        button_row.addWidget(cancel_button)
+        layout.addLayout(button_row)
+
+        def connect_selected():
+            selected_port = port_box.currentText().strip()
+            if not selected_port:
+                self._set_error_status("COM Port Not Found")
+                dialog.reject()
+                return
+            try:
+                import serial
+                if self._rtu_serial_connection is not None:
+                    try:
+                        self._rtu_serial_connection.close()
+                    except Exception:
+                        pass
+                connected_baud = int(self._rtu_baud.currentText())
+                self._rtu_serial_connection = serial.Serial(
+                    selected_port,
+                    connected_baud,
+                    timeout=1
+                )
+                self._connected_baud_rate = connected_baud
+                self._rtu_serial_connection.reset_input_buffer()
+                self._rtu_serial_connection.reset_output_buffer()
+                self._rtu_connect_button.setText("DISCONNECT")
+                self._status.setText("RTU Settings Connected")
+                self._set_status_color("#00C928")
+                dialog.accept()
+            except Exception:
+                self._rtu_serial_connection = None
+                self._rtu_connect_button.setText("CONNECT")
+                self._set_error_status("RTU Settings Connection Error")
+                dialog.reject()
+
+        connect_button.clicked.connect(connect_selected)
+        cancel_button.clicked.connect(dialog.reject)
+        dialog.exec()
 
     def handle_connect(self):
         if self._connect_button.text() == "DISCONNECT":
@@ -1594,9 +1777,6 @@ class DigitalOutputView(QWidget):
             self._run_output_timer.stop()
             self.run_output_button.setText("RUN")
 
-            self._apply_pending = False
-            self._apply_timer.stop()
-            self._apply_buffer.clear()
             self._refresh_pending = False
             self._refresh_timer.stop()
             self._refresh_buffer.clear()
@@ -1615,20 +1795,25 @@ class DigitalOutputView(QWidget):
 
             self._set_error_status("Not Connected")
             self._connect_button.setText("CONNECT")
+            self.do_slave_id.setText("1")
+            self.do_baud_rate.setCurrentText("9600")
             return
 
         self.show_com_port_popup()
 
     def handle_apply_rtu(self):
+        if self._apply_pending:
+            return
+
         if (
-            self._connect_button.text() != "DISCONNECT"
-            or self._serial_connection is None
-            or not self._serial_connection.is_open
+            self._rtu_connect_button.text() != "DISCONNECT"
+            or self._rtu_serial_connection is None
+            or not self._rtu_serial_connection.is_open
         ):
             self._set_error_status("COM Port not connected")
             return
 
-        slave_text = self._slave_id.text().strip()
+        slave_text = self._rtu_slave_id.text().strip()
 
         try:
             slave_id = int(slave_text)
@@ -1640,60 +1825,54 @@ class DigitalOutputView(QWidget):
             self._set_error_status("Slave ID must be 1 to 63")
             return
 
-        baud_rate = self._baud.currentText()
+        baud_rate = self._rtu_baud.currentText()
+        target_baud_rate = int(baud_rate)
         command = f"SID={slave_id},MBD_BAUD={baud_rate}\n"
 
-        if self._apply_pending:
-            return
-
         try:
-            # Mark the request pending before sending so the first click
-            # cannot be lost during the device's serial startup period.
+            self._apply_target_baud_rate = target_baud_rate
             self._apply_pending = True
             self._apply_elapsed = 0
             self._apply_buffer.clear()
             self._apply_timer.stop()
-
-            # Some devices need a short settling time immediately after
-            # COM-port opening before accepting the first configuration
-            # command. Queue the actual write from the first Apply click.
-            QTimer.singleShot(
-                250,
-                lambda cmd=command: self._send_apply_command(cmd)
-            )
+            QTimer.singleShot(250, lambda cmd=command: self._send_apply_command(cmd))
         except Exception:
             self._apply_pending = False
             self._apply_timer.stop()
+            self._apply_baud_timer.stop()
+            self._apply_target_baud_rate = None
             self._apply_buffer.clear()
             self._set_error_status("RTU Settings Not Applied")
 
     def _send_apply_command(self, command):
         if not self._apply_pending:
             return
-
         if (
-            self._serial_connection is None
-            or not self._serial_connection.is_open
+            self._rtu_serial_connection is None
+            or not self._rtu_serial_connection.is_open
         ):
             self._apply_pending = False
             self._set_error_status("COM Port not connected")
             return
-
         try:
-            self._serial_connection.reset_input_buffer()
+            self._rtu_serial_connection.reset_input_buffer()
             self._apply_buffer.clear()
-            self._serial_connection.write(command.encode("ascii"))
-            self._serial_connection.flush()
-            print(f"RTU SETTINGS TX: SID={command.split(',')[0].split('=')[1]}, BAUD={command.split('MBD_BAUD=')[1].strip()}")
+            self._rtu_serial_connection.write(command.encode("ascii"))
+            self._rtu_serial_connection.flush()
+            slave_id = command.split(",")[0].split("=")[1]
+            baud_rate = command.split("MBD_BAUD=")[1].strip()
+            print(f"RTU SETTINGS TX: SID={slave_id}, BAUD={baud_rate}")
+            if (
+                self._connected_baud_rate is not None
+                and int(baud_rate) != self._connected_baud_rate
+            ):
+                self._apply_baud_timer.start(150)
             self._apply_timer.start(20)
         except Exception:
             self._apply_pending = False
             self._apply_timer.stop()
-            self._apply_buffer.clear()
-            self._set_error_status("RTU Settings Not Applied")
-        except Exception:
-            self._apply_pending = False
-            self._apply_timer.stop()
+            self._apply_baud_timer.stop()
+            self._apply_target_baud_rate = None
             self._apply_buffer.clear()
             self._set_error_status("RTU Settings Not Applied")
 
@@ -1703,23 +1882,23 @@ class DigitalOutputView(QWidget):
             return
 
         if (
-            self._serial_connection is None
-            or not self._serial_connection.is_open
+            self._rtu_serial_connection is None
+            or not self._rtu_serial_connection.is_open
         ):
             self._apply_pending = False
             self._apply_timer.stop()
+            self._apply_baud_timer.stop()
+            self._apply_target_baud_rate = None
             self._apply_buffer.clear()
             return
 
         try:
-            waiting = self._serial_connection.in_waiting
+            waiting = self._rtu_serial_connection.in_waiting
             if waiting > 0:
-                chunk = self._serial_connection.read(waiting)
+                chunk = self._rtu_serial_connection.read(waiting)
                 self._apply_buffer.extend(chunk)
                 print(f"RTU SETTINGS RX: {chunk!r}")
 
-            # Wait for the complete response because serial data can arrive
-            # in multiple chunks.
             if b"\r\n" in self._apply_buffer:
                 response, _, remaining = self._apply_buffer.partition(b"\r\n")
                 complete_response = response + b"\r\n"
@@ -1728,6 +1907,8 @@ class DigitalOutputView(QWidget):
                 if complete_response == b"OK:Settings Updated\r\n":
                     self._apply_pending = False
                     self._apply_timer.stop()
+                    self._apply_baud_timer.stop()
+                    self._apply_target_baud_rate = None
                     self._apply_buffer.clear()
                     self.add_terminal_message("OK: Settings Applied")
                     self._status.setText("RTU Settings Applied")
@@ -1736,6 +1917,8 @@ class DigitalOutputView(QWidget):
 
                 self._apply_pending = False
                 self._apply_timer.stop()
+                self._apply_baud_timer.stop()
+                self._apply_target_baud_rate = None
                 self._apply_buffer.clear()
                 self._set_error_status("RTU Settings Not Applied")
                 return
@@ -1744,13 +1927,31 @@ class DigitalOutputView(QWidget):
             if self._apply_elapsed >= 2000:
                 self._apply_pending = False
                 self._apply_timer.stop()
+                self._apply_baud_timer.stop()
+                self._apply_target_baud_rate = None
                 self._apply_buffer.clear()
                 self._set_error_status("RTU Settings Not Applied")
         except Exception:
             self._apply_pending = False
             self._apply_timer.stop()
+            self._apply_baud_timer.stop()
+            self._apply_target_baud_rate = None
             self._apply_buffer.clear()
             self._set_error_status("RTU Settings Not Applied")
+
+    def _switch_to_applied_baud(self):
+        if (
+            self._rtu_serial_connection is None
+            or not self._rtu_serial_connection.is_open
+            or self._apply_target_baud_rate is None
+        ):
+            return
+
+        try:
+            self._rtu_serial_connection.baudrate = self._apply_target_baud_rate
+            self._connected_baud_rate = self._apply_target_baud_rate
+        except Exception:
+            pass
 
     def _modbus_crc(self, data):
         crc = 0xFFFF
@@ -1781,7 +1982,7 @@ class DigitalOutputView(QWidget):
             self._do_refresh_buffer.clear()
             self._do_refresh_elapsed = 0
             self.run_output_button.setText("RUN")
-            self._status.setText("Digital Output Stopped")
+            self._status.setText("DO STOPPED")
             self._set_status_color("#D00000")
             self._status_dot.setStyleSheet("""
                 QLabel {
@@ -1795,12 +1996,31 @@ class DigitalOutputView(QWidget):
 
         self._run_output_active = True
         self.run_output_button.setText("STOP")
-        self._status.setText("Digital Output Running")
+        self._status.setText("DO RUNNING")
         self._set_status_color("#13C51F")
         self._run_output_timer.start(500)
 
         # Start the first TX/RX immediately.
         self.handle_do_refresh()
+
+    def _sync_do_baud_rate(self):
+        """Apply the currently selected Digital Output baud rate to the
+        already-open DO serial port without reconnecting it.
+        """
+        if self._serial_connection is None or not self._serial_connection.is_open:
+            return False
+
+        try:
+            selected_baud = int(self._baud.currentText())
+            if self._serial_connection.baudrate != selected_baud:
+                self._serial_connection.baudrate = selected_baud
+                self._serial_connection.reset_input_buffer()
+                self._serial_connection.reset_output_buffer()
+                print(f"DO Baud Rate changed to: {selected_baud}")
+            return True
+        except Exception as exc:
+            print(f"DO Baud Rate change error: {exc}")
+            return False
 
     def _run_output_cycle(self):
         if not self._run_output_active:
@@ -1819,10 +2039,6 @@ class DigitalOutputView(QWidget):
     def _disconnect_after_device_loss(self):
         self._run_output_active = False
         self._run_output_timer.stop()
-
-        self._apply_pending = False
-        self._apply_timer.stop()
-        self._apply_buffer.clear()
 
         self._refresh_pending = False
         self._refresh_timer.stop()
@@ -1880,6 +2096,12 @@ class DigitalOutputView(QWidget):
             ])
             command = request + self._modbus_crc(request)
 
+            # Pick up the latest baud-rate selection before every RUN TX.
+            # This allows baud-rate changes while RUN is already active.
+            if not self._sync_do_baud_rate():
+                self._set_error_status("DO Baud Rate Error")
+                return
+
             self._serial_connection.reset_input_buffer()
             self._do_refresh_buffer.clear()
             self._serial_connection.write(command)
@@ -1895,11 +2117,7 @@ class DigitalOutputView(QWidget):
             self._do_refresh_pending = False
             self._do_refresh_timer.stop()
             self._do_refresh_buffer.clear()
-
-            if self._run_output_active:
-                self.add_terminal_message(f"COM Port Disconnected: {exc}")
-                self._disconnect_after_device_loss()
-                return
+            self._do_refresh_elapsed = 0
 
             self._set_error_status("DO Refresh Error")
             self.add_terminal_message(f"DO Refresh Error: {exc}")
@@ -1946,11 +2164,8 @@ class DigitalOutputView(QWidget):
                         self._do_refresh_pending = False
                         self._do_refresh_timer.stop()
                         self._do_refresh_buffer.clear()
-
-                        if self._run_output_active:
-                            self._disconnect_after_device_loss()
-                        else:
-                            self._set_error_status("DO Refresh Timeout")
+                        self._do_refresh_elapsed = 0
+                        self._set_error_status("DO Refresh Timeout")
 
                     return
 
@@ -1993,7 +2208,10 @@ class DigitalOutputView(QWidget):
                         self.add_terminal_message(
                             f"DO Stopped: {data_byte_1:02X}{data_byte_2:02X}"
                         )
-                    self._status.setText("DO Status Refreshed")
+                    if self._run_output_active:
+                        self._status.setText("DO RUNNING")
+                    else:
+                        self._status.setText("DO Status Refreshed")
                     self._set_status_color("#00C928")
                 else:
                     self._set_error_status("DO Refresh Response Error")
@@ -2009,29 +2227,22 @@ class DigitalOutputView(QWidget):
                 self._do_refresh_pending = False
                 self._do_refresh_timer.stop()
                 self._do_refresh_buffer.clear()
-
-                if self._run_output_active:
-                    self._disconnect_after_device_loss()
-                else:
-                    self._set_error_status("DO Refresh Timeout")
+                self._do_refresh_elapsed = 0
+                self._set_error_status("DO Refresh Timeout")
 
         except Exception as exc:
             self._do_refresh_pending = False
             self._do_refresh_timer.stop()
             self._do_refresh_buffer.clear()
-
-            if self._run_output_active:
-                self.add_terminal_message(f"COM Port Disconnected: {exc}")
-                self._disconnect_after_device_loss()
-                return
+            self._do_refresh_elapsed = 0
 
             self._set_error_status("DO Refresh Error")
             self.add_terminal_message(f"DO Refresh Error: {exc}")
 
     def handle_refresh(self):
         if (
-            self._serial_connection is None
-            or not self._serial_connection.is_open
+            self._rtu_serial_connection is None
+            or not self._rtu_serial_connection.is_open
         ):
             self._set_error_status("COM Port Not Connected")
             return
@@ -2040,10 +2251,11 @@ class DigitalOutputView(QWidget):
             return
 
         try:
-            self._serial_connection.reset_input_buffer()
+            self._rtu_serial_connection.reset_input_buffer()
             self._refresh_buffer.clear()
-            self._serial_connection.write(b"GETCFG\n")
-            self._serial_connection.flush()
+            print("[TX] GETCFG\n")
+            self._rtu_serial_connection.write(b"GETCFG\n")
+            self._rtu_serial_connection.flush()
 
             self._refresh_pending = True
             self._refresh_elapsed = 0
@@ -2060,8 +2272,8 @@ class DigitalOutputView(QWidget):
             return
 
         if (
-            self._serial_connection is None
-            or not self._serial_connection.is_open
+            self._rtu_serial_connection is None
+            or not self._rtu_serial_connection.is_open
         ):
             self._refresh_pending = False
             self._refresh_timer.stop()
@@ -2070,16 +2282,16 @@ class DigitalOutputView(QWidget):
             return
 
         try:
-            waiting = self._serial_connection.in_waiting
+            waiting = self._rtu_serial_connection.in_waiting
             if waiting > 0:
-                self._refresh_buffer.extend(
-                    self._serial_connection.read(waiting)
-                )
+                chunk = self._rtu_serial_connection.read(waiting)
+                print(f"[RX] {chunk!r}")
+                self._refresh_buffer.extend(chunk)
 
-            if b"\r\n" in self._refresh_buffer:
-                response_bytes, _, remaining = self._refresh_buffer.partition(b"\r\n")
+            if b"\n" in self._refresh_buffer:
+                response_bytes, _, remaining = self._refresh_buffer.partition(b"\n")
                 self._refresh_buffer = bytearray(remaining)
-                response = (response_bytes + b"\r\n").decode(
+                response = response_bytes.decode(
                     "ascii", errors="replace"
                 ).strip()
 
@@ -2134,6 +2346,7 @@ class DigitalOutputView(QWidget):
             self._set_error_status("Refresh Error")
 
     def handle_back(self):
+        # Stop every running/pending communication operation first.
         self._connection_monitor_timer.stop()
         self._run_output_active = False
         self._run_output_timer.stop()
@@ -2142,16 +2355,25 @@ class DigitalOutputView(QWidget):
         self._apply_pending = False
         self._apply_timer.stop()
         self._apply_buffer.clear()
+
         self._refresh_pending = False
         self._refresh_timer.stop()
         self._refresh_buffer.clear()
+
         self._do_refresh_pending = False
         self._do_refresh_timer.stop()
         self._do_refresh_buffer.clear()
+        self._do_refresh_elapsed = 0
+
         self._do1_pending = False
         self._do1_timer.stop()
         self._do1_buffer.clear()
+        self._all_output_pending = False
+        self._all_output_timer.stop()
+        self._all_output_buffer.clear()
+        self._all_output_elapsed = 0
 
+        # Close both independent COM connections.
         if self._serial_connection is not None:
             try:
                 self._serial_connection.close()
@@ -2160,7 +2382,33 @@ class DigitalOutputView(QWidget):
             finally:
                 self._serial_connection = None
 
+        if self._rtu_serial_connection is not None:
+            try:
+                self._rtu_serial_connection.close()
+            except Exception:
+                pass
+            finally:
+                self._rtu_serial_connection = None
+
+        # Reset the complete page to its initial/default state so that
+        # opening Digital Output again starts exactly like a fresh page.
         self._connect_button.setText("CONNECT")
+        self._rtu_connect_button.setText("CONNECT")
+
+        self.do_slave_id.setText("1")
+        self.do_baud_rate.setCurrentText("9600")
+
+        self.slave_id.setText("1")
+        self.baud_rate.setCurrentText("9600")
+
+        self._connected_baud_rate = None
+
+        for channel in range(1, 17):
+            self._output_states[channel] = False
+            button = self._output_status_buttons.get(channel)
+            if button is not None:
+                button.set_on(False)
+
         self._set_error_status("Not Connected")
         self.terminal_messages = ["Device Terminal Ready"]
         self.terminal_message.setPlainText("Device Terminal Ready")

@@ -417,15 +417,10 @@ class ModbusView(QWidget):
 
         baud = QComboBox()
         baud.addItems([
-            "1200",
-            "2400",
-            "4800",
             "9600",
             "19200",
             "38400",
-            "57600",
-            "115200",
-            "230400"
+            "115200"
         ])
         baud.setCurrentText("9600")
         baud.setFixedHeight(36)
@@ -625,30 +620,20 @@ class ModbusView(QWidget):
 
         port1 = QComboBox()
         port1.addItems([
-            "1200",
-            "2400",
-            "4800",
             "9600",
             "19200",
             "38400",
-            "57600",
-            "115200",
-            "230400"
+            "115200"
         ])
         port1.setCurrentText("9600")
         port1.setFixedSize(115, 40)
 
         port2 = QComboBox()
         port2.addItems([
-            "1200",
-            "2400",
-            "4800",
             "9600",
             "19200",
             "38400",
-            "57600",
-            "115200",
-            "230400"
+            "115200"
         ])
         port2.setCurrentText("9600")
         port2.setFixedSize(115, 40)
