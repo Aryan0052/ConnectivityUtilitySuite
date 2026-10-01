@@ -1825,84 +1825,161 @@ class DigitalInputView(QWidget):
         dialog.exec()
 
     def _check_connection_status(self):
+
         # Monitor Digital Input COM connection.
+
         if self._di_serial_connection is not None:
+
             try:
+
                 current_port = self._di_serial_connection.port
+
                 available_ports = {port.device for port in list_ports.comports()}
+
                 port_is_missing = current_port not in available_ports
+
                 disconnected = (
+
                     not self._di_serial_connection.is_open
+
                     or port_is_missing
+
                 )
+
                 if disconnected:
+
                     print("COM Port disconnected:", current_port)
+
                     self._stop_run()
+
                     self._apply_pending = False
+
                     self._apply_timer.stop()
+
                     self._apply_buffer.clear()
+
                     self._refresh_pending = False
+
                     self._refresh_timer.stop()
+
                     self._refresh_buffer.clear()
+
                     try:
+
                         self._di_serial_connection.close()
+
                     except Exception:
+
                         pass
+
                     self._di_serial_connection = None
+
                     self._connect_button.setText("CONNECT")
+
                     self._status.setText("COM Port Not Found")
+
                     self._set_status_color("#D00000")
+
             except Exception as exc:
+
                 print("DI COM Port Monitor Error:", repr(exc))
+
                 if (
+
                     self._di_serial_connection is None
+
                     or not self._di_serial_connection.is_open
+
                 ):
+
                     self._di_serial_connection = None
+
                     self._stop_run()
+
                     self._connect_button.setText("CONNECT")
+
                     self._status.setText("COM Port Not Found")
+
                     self._set_status_color("#D00000")
 
         # Monitor RTU Settings COM connection.
+
         if self._rtu_serial_connection is not None:
+
             try:
+
                 current_port = self._rtu_serial_connection.port
+
                 available_ports = {port.device for port in list_ports.comports()}
+
                 port_is_missing = current_port not in available_ports
+
                 disconnected = (
+
                     not self._rtu_serial_connection.is_open
+
                     or port_is_missing
+
                 )
+
                 if disconnected:
+
                     print("RTU Settings COM Port disconnected:", current_port)
+
                     self._apply_pending = False
+
                     self._apply_timer.stop()
+
                     self._apply_baud_timer.stop()
+
                     self._apply_buffer.clear()
+
                     self._apply_target_baud_rate = None
+
                     self._refresh_pending = False
+
                     self._refresh_timer.stop()
+
                     self._refresh_buffer.clear()
+
                     try:
+
                         self._rtu_serial_connection.close()
+
                     except Exception:
+
                         pass
+
                     self._rtu_serial_connection = None
+
                     self._rtu_connected_baud_rate = None
+
                     self._rtu_connect_button.setText("CONNECT")
+
                     self._status.setText("COM Port Not Found")
+
                     self._set_status_color("#D00000")
+
             except Exception as exc:
+
                 print("RTU COM Port Monitor Error:", repr(exc))
+
                 if (
+
                     self._rtu_serial_connection is None
+
                     or not self._rtu_serial_connection.is_open
+
                 ):
+
                     self._rtu_serial_connection = None
+
                     self._rtu_connected_baud_rate = None
+
                     self._rtu_connect_button.setText("CONNECT")
+
                     self._status.setText("COM Port Not Found")
+
                     self._set_status_color("#D00000")
 
     def handle_rtu_connect(self):
@@ -2197,15 +2274,6 @@ class DigitalInputView(QWidget):
 
             self._apply_timer.start(20)
 
-            if (
-
-                self._rtu_connected_baud_rate is not None
-
-                and target_baud_rate != self._rtu_connected_baud_rate
-
-            ):
-
-                self._apply_baud_timer.start(150)
 
         except Exception:
 
@@ -2302,6 +2370,16 @@ class DigitalInputView(QWidget):
                     self._apply_timer.stop()
 
                     self._apply_baud_timer.stop()
+
+                    if (
+
+                        self._apply_target_baud_rate is not None
+
+                        and self._rtu_connected_baud_rate != self._apply_target_baud_rate
+
+                    ):
+
+                        self._switch_to_applied_baud()
 
                     self._apply_target_baud_rate = None
 

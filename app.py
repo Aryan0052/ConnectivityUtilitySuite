@@ -2,19 +2,13 @@
 
 import sys
 
-
-
 # 150% is the reference application size.
 
 os.environ["QT_SCALE_FACTOR"] = str(1.0 / 1.5)
 
-
-
 from PySide6.QtCore import Qt
 
 from PySide6.QtGui import QIcon
-
-
 
 from PySide6.QtWidgets import (
 
@@ -25,33 +19,22 @@ from PySide6.QtWidgets import (
     QStackedWidget,
 
     QPushButton,
+
 )
-
-
 
 from views.login_view import LoginView
 
-
-
-
-
 class MainWindow(QMainWindow):
-
-
 
     def __init__(self):
 
         super().__init__()
-
-
 
         self.setWindowTitle(
 
             "Nelumbo Connectivity Utility Suite"
 
         )
-
-
 
         # Application / window icon
 
@@ -67,8 +50,6 @@ class MainWindow(QMainWindow):
 
             )
 
-
-
         self.app_icon = QIcon(
 
             os.path.join(
@@ -83,15 +64,11 @@ class MainWindow(QMainWindow):
 
         )
 
-
-
         self.setWindowIcon(
 
             self.app_icon
 
         )
-
-
 
         # Default application size.
 
@@ -107,8 +84,6 @@ class MainWindow(QMainWindow):
 
         )
 
-
-
         self.setStyleSheet("""
 
             QMainWindow {
@@ -116,8 +91,6 @@ class MainWindow(QMainWindow):
                 background: #F5FAEF;
 
             }
-
-
 
             QStackedWidget {
 
@@ -127,19 +100,13 @@ class MainWindow(QMainWindow):
 
         """)
 
-
-
         # -------------------------------------------------
 
         # STACK
 
         # -------------------------------------------------
 
-
-
         self.stack = QStackedWidget()
-
-
 
         self.stack.setObjectName(
 
@@ -147,15 +114,11 @@ class MainWindow(QMainWindow):
 
         )
 
-
-
         self.setCentralWidget(
 
             self.stack
 
         )
-
-
 
         # -------------------------------------------------
 
@@ -163,15 +126,11 @@ class MainWindow(QMainWindow):
 
         # -------------------------------------------------
 
-
-
         # Login is the only view created during startup.
 
         # Other views are created only when the user opens them.
 
         self.login_view = LoginView()
-
-
 
         self.stack.addWidget(
 
@@ -179,15 +138,11 @@ class MainWindow(QMainWindow):
 
         )
 
-
-
         # -------------------------------------------------
 
         # LOGIN -> PORTFOLIO
 
         # -------------------------------------------------
-
-
 
         if hasattr(
 
@@ -203,15 +158,11 @@ class MainWindow(QMainWindow):
 
             )
 
-
-
         # -------------------------------------------------
 
         # START WITH LOGIN
 
         # -------------------------------------------------
-
-
 
         self.stack.setCurrentWidget(
 
@@ -219,25 +170,17 @@ class MainWindow(QMainWindow):
 
         )
 
-
-
     # -----------------------------------------------------
 
     # NAVIGATION
 
     # -----------------------------------------------------
 
-
-
     def show_portfolio(self):
-
-
 
         if not hasattr(self, "portfolio_view"):
 
             from views.portfolio_view import PortfolioView
-
-
 
             self.portfolio_view = PortfolioView()
 
@@ -246,8 +189,6 @@ class MainWindow(QMainWindow):
                 self.portfolio_view
 
             )
-
-
 
             if hasattr(
 
@@ -263,8 +204,6 @@ class MainWindow(QMainWindow):
 
                 )
 
-
-
             if hasattr(
 
                 self.portfolio_view,
@@ -278,8 +217,6 @@ class MainWindow(QMainWindow):
                     self.show_digital_output
 
                 )
-
-
 
             if hasattr(
 
@@ -295,8 +232,6 @@ class MainWindow(QMainWindow):
 
                 )
 
-
-
             if hasattr(
 
                 self.portfolio_view,
@@ -310,8 +245,6 @@ class MainWindow(QMainWindow):
                     self.show_analog_output
 
                 )
-
-
 
             if hasattr(
 
@@ -327,7 +260,13 @@ class MainWindow(QMainWindow):
 
                 )
 
-
+            if hasattr(
+                self.portfolio_view,
+                "communication_clicked"
+            ):
+                self.portfolio_view.communication_clicked.connect(
+                    self.show_communication
+                )
 
             if hasattr(
 
@@ -343,25 +282,17 @@ class MainWindow(QMainWindow):
 
                 )
 
-
-
         self.stack.setCurrentWidget(
 
             self.portfolio_view
 
         )
 
-
-
     def show_login(self):
-
-
 
         self.login_view.username_input.clear()
 
         self.login_view.password_input.clear()
-
-
 
         self.stack.setCurrentWidget(
 
@@ -369,17 +300,11 @@ class MainWindow(QMainWindow):
 
         )
 
-
-
     def show_digital_input(self):
-
-
 
         if not hasattr(self, "digital_input_view"):
 
             from views.digital_input_view import DigitalInputView
-
-
 
             self.digital_input_view = DigitalInputView()
 
@@ -388,8 +313,6 @@ class MainWindow(QMainWindow):
                 self.digital_input_view
 
             )
-
-
 
             if hasattr(
 
@@ -405,25 +328,17 @@ class MainWindow(QMainWindow):
 
                 )
 
-
-
         self.stack.setCurrentWidget(
 
             self.digital_input_view
 
         )
 
-
-
     def show_digital_output(self):
-
-
 
         if not hasattr(self, "digital_output_view"):
 
             from views.digital_output_view import DigitalOutputView
-
-
 
             self.digital_output_view = DigitalOutputView()
 
@@ -432,8 +347,6 @@ class MainWindow(QMainWindow):
                 self.digital_output_view
 
             )
-
-
 
             if hasattr(
 
@@ -449,25 +362,17 @@ class MainWindow(QMainWindow):
 
                 )
 
-
-
         self.stack.setCurrentWidget(
 
             self.digital_output_view
 
         )
 
-
-
     def show_analog_input(self):
-
-
 
         if not hasattr(self, "analog_input_view"):
 
             from views.analog_input_view import AnalogInputView
-
-
 
             self.analog_input_view = AnalogInputView()
 
@@ -476,8 +381,6 @@ class MainWindow(QMainWindow):
                 self.analog_input_view
 
             )
-
-
 
             if hasattr(
 
@@ -493,8 +396,6 @@ class MainWindow(QMainWindow):
 
                 )
 
-
-
             if hasattr(
 
                 self.analog_input_view,
@@ -509,25 +410,17 @@ class MainWindow(QMainWindow):
 
                 )
 
-
-
         self.stack.setCurrentWidget(
 
             self.analog_input_view
 
         )
 
-
-
     def show_analog_input_test_mode(self):
-
-
 
         if not hasattr(self, "analog_input_test_mode_view"):
 
             from views.analog_input_test_mode_view import AnalogInputTestModeView
-
-
 
             self.analog_input_test_mode_view = AnalogInputTestModeView()
 
@@ -536,8 +429,6 @@ class MainWindow(QMainWindow):
                 self.analog_input_test_mode_view
 
             )
-
-
 
             # Show the Test Mode page first, then let Qt finish the
 
@@ -549,8 +440,6 @@ class MainWindow(QMainWindow):
 
             )
 
-
-
             self.analog_input_test_mode_view.set_connection_context(
 
                 lambda: self.analog_input_view._serial_connection,
@@ -558,8 +447,6 @@ class MainWindow(QMainWindow):
                 lambda: self.analog_input_view._slave_id.text(),
 
             )
-
-
 
             if hasattr(
 
@@ -575,56 +462,67 @@ class MainWindow(QMainWindow):
 
                 )
 
-
-
         self.stack.setCurrentWidget(
 
             self.analog_input_test_mode_view
 
         )
 
-
-
         # Connect only the existing DATA ANALYSIS button.
+
         for button in self.analog_input_test_mode_view.findChildren(QPushButton):
+
             if button.text().strip().upper() == "DATA ANALYSIS":
+
                 button.clicked.connect(
+
                     self.show_analog_input_data_analysis
+
                 )
+
                 self.analog_input_test_mode_view._data_analysis_button = button
+
                 break
 
     def show_analog_input_data_analysis(self):
 
         if not hasattr(self, "analog_input_data_analysis_view"):
+
             from views.analog_input_data_analysis_view import AnalogInputDataAnalysisView
 
             self.analog_input_data_analysis_view = AnalogInputDataAnalysisView()
+
             self.stack.addWidget(
+
                 self.analog_input_data_analysis_view
+
             )
 
             if hasattr(
+
                 self.analog_input_data_analysis_view,
+
                 "back_clicked"
+
             ):
+
                 self.analog_input_data_analysis_view.back_clicked.connect(
+
                     self.show_analog_input_test_mode
+
                 )
 
         self.stack.setCurrentWidget(
+
             self.analog_input_data_analysis_view
+
         )
 
     def show_analog_output(self):
 
-
-
         if not hasattr(self, "analog_output_view"):
 
             from views.analog_output_view import AnalogOutputView
-
-
 
             self.analog_output_view = AnalogOutputView()
 
@@ -633,8 +531,6 @@ class MainWindow(QMainWindow):
                 self.analog_output_view
 
             )
-
-
 
             if hasattr(
 
@@ -650,25 +546,17 @@ class MainWindow(QMainWindow):
 
                 )
 
-
-
         self.stack.setCurrentWidget(
 
             self.analog_output_view
 
         )
 
-
-
     def show_modbus(self):
-
-
 
         if not hasattr(self, "modbus_view"):
 
             from views.modbus_view import ModbusView
-
-
 
             self.modbus_view = ModbusView()
 
@@ -677,8 +565,6 @@ class MainWindow(QMainWindow):
                 self.modbus_view
 
             )
-
-
 
             if hasattr(
 
@@ -694,21 +580,37 @@ class MainWindow(QMainWindow):
 
                 )
 
-
-
         self.stack.setCurrentWidget(
 
             self.modbus_view
 
         )
 
+    def show_communication(self):
 
+        if not hasattr(self, "communication_view"):
 
+            from views.communication_view import CommunicationView
 
+            self.communication_view = CommunicationView()
+
+            self.stack.addWidget(
+                self.communication_view
+            )
+
+            if hasattr(
+                self.communication_view,
+                "back_clicked"
+            ):
+                self.communication_view.back_clicked.connect(
+                    self.show_portfolio
+                )
+
+        self.stack.setCurrentWidget(
+            self.communication_view
+        )
 
 def main():
-
-
 
     # Windows taskbar/application identity.
 
@@ -716,15 +618,11 @@ def main():
 
         import ctypes
 
-
-
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
 
             "Nelumbo.Automation.ConnectivityUtilitySuite"
 
         )
-
-
 
     app = QApplication(
 
@@ -732,15 +630,11 @@ def main():
 
     )
 
-
-
     # -------------------------------------------------
 
     # APPLICATION ICON
 
     # -------------------------------------------------
-
-
 
     if getattr(sys, "frozen", False):
 
@@ -754,8 +648,6 @@ def main():
 
         )
 
-
-
     icon_path = os.path.join(
 
         base_path,
@@ -766,15 +658,11 @@ def main():
 
     )
 
-
-
     app_icon = QIcon(
 
         icon_path
 
     )
-
-
 
     app.setWindowIcon(
 
@@ -782,19 +670,13 @@ def main():
 
     )
 
-
-
     app.setStyle(
 
         "Fusion"
 
     )
 
-
-
     window = MainWindow()
-
-
 
     # Explicitly apply the same icon to the main window.
 
@@ -803,8 +685,6 @@ def main():
         app_icon
 
     )
-
-
 
     # Keep the existing default size. The window is intentionally
 
@@ -816,13 +696,9 @@ def main():
 
     )
 
-
-
     base_width = 1100
 
     base_height = 870
-
-
 
     width = min(
 
@@ -832,8 +708,6 @@ def main():
 
     )
 
-
-
     height = min(
 
         base_height,
@@ -841,8 +715,6 @@ def main():
         screen.height()
 
     )
-
-
 
     window.resize(
 
@@ -852,8 +724,6 @@ def main():
 
     )
 
-
-
     window.move(
 
         screen.x() + (screen.width() - window.width()) // 2,
@@ -862,11 +732,7 @@ def main():
 
     )
 
-
-
     window.show()
-
-
 
     sys.exit(
 
@@ -874,12 +740,6 @@ def main():
 
     )
 
-
-
-
-
 if __name__ == "__main__":
-
-
 
     main()

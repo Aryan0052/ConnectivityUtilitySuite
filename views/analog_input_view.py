@@ -1343,11 +1343,6 @@ class AnalogInputView(QWidget):
             self._apply_elapsed = 0
             self._apply_timer.start(20)
 
-            if (
-                self._rtu_connected_baud_rate is not None
-                and target_baud_rate != self._rtu_connected_baud_rate
-            ):
-                self._apply_baud_timer.start(150)
 
         except Exception:
             self._apply_baud_timer.stop()
@@ -1403,6 +1398,11 @@ class AnalogInputView(QWidget):
 
                 if complete_response == b"OK:Settings Updated\r\n":
                     self._apply_baud_timer.stop()
+                    if (
+                        self._apply_target_baud_rate is not None
+                        and self._rtu_connected_baud_rate != self._apply_target_baud_rate
+                    ):
+                        self._switch_to_applied_baud()
                     self._apply_target_baud_rate = None
                     self._apply_pending = False
                     self._apply_timer.stop()

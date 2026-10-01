@@ -1862,11 +1862,6 @@ class DigitalOutputView(QWidget):
             slave_id = command.split(",")[0].split("=")[1]
             baud_rate = command.split("MBD_BAUD=")[1].strip()
             print(f"RTU SETTINGS TX: SID={slave_id}, BAUD={baud_rate}")
-            if (
-                self._connected_baud_rate is not None
-                and int(baud_rate) != self._connected_baud_rate
-            ):
-                self._apply_baud_timer.start(150)
             self._apply_timer.start(20)
         except Exception:
             self._apply_pending = False
@@ -1908,6 +1903,11 @@ class DigitalOutputView(QWidget):
                     self._apply_pending = False
                     self._apply_timer.stop()
                     self._apply_baud_timer.stop()
+                    if (
+                        self._apply_target_baud_rate is not None
+                        and self._connected_baud_rate != self._apply_target_baud_rate
+                    ):
+                        self._switch_to_applied_baud()
                     self._apply_target_baud_rate = None
                     self._apply_buffer.clear()
                     self.add_terminal_message("OK: Settings Applied")
