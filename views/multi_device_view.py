@@ -4381,6 +4381,9 @@ class MultiDeviceView(QWidget):
         device_stats = device["stats"] if device is not None else None
         stamp = event["time"]
         tag = _id_text(device) if device is not None else f"Slave {sid}"
+        if device is not None and tcpip.is_device(device):
+            tag = f"{tag} \u00b7 {device.get('name') or sid}"     # several devices can share one IP address
+        lc.TAG_IDS[tag] = sid               # the Live traffic views find this device's lines by this tag
         if kind == "tx":
             self._count("tx", device_stats)
             if event["kind"] == "retry":

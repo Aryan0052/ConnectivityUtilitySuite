@@ -1597,10 +1597,21 @@ def _age(stamp):
 
 # --------------------------------------------------------------------------- traffic console
 _LINE = re.compile(r"^\[(\d\d:\d\d:\d\d\.\d{3})\] (.*)$")
-_TXL = re.compile(r"^(.*?TX) -> \[(.*?)\] \(Slave (\d+) / FC (\d+)\)$")
-_RXL = re.compile(r"^RX <- \[(.*?)\] \(Slave (\d+) / FC (\d+)\)$")
-_TOL = re.compile(r"^RX <- TIMEOUT \((\d+) ms\) \(Slave (\d+)\)$")
+# The device tag in a TX / RX line is "Slave 3" (RTU), "TCP \u00b7 ID 3" (gateway) or "192.168.0.181" (own IP).
+_TXL = re.compile(r"^(.*?TX) -> \[(.*?)\] \((.+?) / FC (\d+)\)$")
+_RXL = re.compile(r"^RX <- \[(.*?)\] \((.+?) / FC (\d+)\)$")
+_TOL = re.compile(r"^RX <- TIMEOUT \((\d+) ms\) \((.+?)\)$")
 _SLV = re.compile(r"Slave (\d+)")
+_TAG_NUM = re.compile(r"(?:Slave|ID) (\d+)$")
+TAG_IDS = {}          # device tag -> device key; filled by the page that writes the lines (Multi Device)
+
+
+def tag_id(tag):
+    """Device key of a line's device tag, or None."""
+    if tag in TAG_IDS:
+        return TAG_IDS[tag]
+    m = _TAG_NUM.search(tag)
+    return int(m.group(1)) if m else None
 
 
 def parse_line(line):
@@ -1614,19 +1625,19 @@ def parse_line(line):
         tag = m.group(1)
         color = "#5AA9FF" if tag == "TX" else "#E3A33B"
         label = "TX" if tag == "TX" else escape(tag.replace(" TX", "").upper()[:5]) + " TX"
-        return "tx", int(m.group(3)), (f'{t}<b style="color:{color}">{label}</b>&nbsp;&nbsp;'
-                                       f'<span style="color:#7B8794">Slave {m.group(3)} \u00b7 FC{int(m.group(4)):02d}</span>'
-                                       f'&nbsp;&nbsp;{escape(m.group(2))}')
+        return "tx", tag_id(m.group(3)), (f'{t}<b style="color:{color}">{label}</b>&nbsp;&nbsp;'
+                                          f'<span style="color:#7B8794">{escape(m.group(3))} \u00b7 FC{int(m.group(4)):02d}</span>'
+                                          f'&nbsp;&nbsp;{escape(m.group(2))}')
     m = _RXL.match(body)
     if m:
-        return "rx", int(m.group(2)), (f'{t}<b style="color:#4CC38A">RX</b>&nbsp;&nbsp;'
-                                       f'<span style="color:#7B8794">Slave {m.group(2)} \u00b7 FC{int(m.group(3)):02d}</span>'
-                                       f'&nbsp;&nbsp;{escape(m.group(1))}')
+        return "rx", tag_id(m.group(2)), (f'{t}<b style="color:#4CC38A">RX</b>&nbsp;&nbsp;'
+                                          f'<span style="color:#7B8794">{escape(m.group(2))} \u00b7 FC{int(m.group(3)):02d}</span>'
+                                          f'&nbsp;&nbsp;{escape(m.group(1))}')
     m = _TOL.match(body)
     if m:
-        return "err", int(m.group(2)), (f'{t}<b style="color:#F07167">TO</b>&nbsp;&nbsp;'
-                                        f'<span style="color:#7B8794">Slave {m.group(2)}</span>'
-                                        f'&nbsp;&nbsp;no reply after {m.group(1)} ms')
+        return "err", tag_id(m.group(2)), (f'{t}<b style="color:#F07167">TO</b>&nbsp;&nbsp;'
+                                           f'<span style="color:#7B8794">{escape(m.group(2))}</span>'
+                                           f'&nbsp;&nbsp;no reply after {m.group(1)} ms')
     lower = body.lower()
     bad = bool(re.search(r"communication error|failed|port lost|no longer available|exception|timeout \(", lower))
     s = _SLV.search(body)

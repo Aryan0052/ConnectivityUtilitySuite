@@ -103,7 +103,7 @@ class MainWindow(QMainWindow):
         else:
             icon_base_path = os.path.dirname(os.path.abspath(__file__))
 
-        self.app_icon = QIcon(os.path.join(icon_base_path, "assets", "13.ico"))
+        self.app_icon = _square_icon(_icon_file(icon_base_path))
         self.setWindowIcon(self.app_icon)
 
         # Default application size.
@@ -396,6 +396,33 @@ class MainWindow(QMainWindow):
         self._show_view("mft_analog")
 
 
+def _icon_file(base_path):
+    """Window / taskbar icon: assets/app_icon.ico (a real multi-size Windows icon - Windows needs that for the
+    taskbar) when present, else assets/13.ico (the logo picture, also used inside the pages)."""
+    real = os.path.join(base_path, "assets", "app_icon.ico")
+    return real if os.path.exists(real) else os.path.join(base_path, "assets", "13.ico")
+
+
+def _square_icon(path):
+    """The logo picture as a window / taskbar icon. 13.ico is a 969 x 733 picture: Windows shows a
+    non-square icon in the title bar but not in the taskbar, so the SAME picture is placed in the middle of a
+    square with transparent bands above and below (nothing else is changed), in the sizes Windows asks for."""
+    from PySide6.QtGui import QImage, QPixmap, QPainter
+    image = QImage(path)
+    if image.isNull():
+        return QIcon(path)
+    icon = QIcon()
+    for size in (16, 20, 24, 32, 40, 48, 64, 96, 128, 256):
+        picture = image.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        square = QPixmap(size, size)
+        square.fill(Qt.transparent)
+        painter = QPainter(square)
+        painter.drawImage((size - picture.width()) // 2, (size - picture.height()) // 2, picture)
+        painter.end()
+        icon.addPixmap(square)
+    return icon
+
+
 def _preload_portfolio():
     from views.portfolio_view import preload_assets
     preload_assets()           # Portfolio pictures are decoded in a thread while the login page is shown
@@ -425,8 +452,8 @@ def main():
     else:
         base_path = os.path.dirname(os.path.abspath(__file__))
 
-    icon_path = os.path.join(base_path, "assets", "13.ico")
-    app_icon = QIcon(icon_path)
+    icon_path = _icon_file(base_path)
+    app_icon = _square_icon(icon_path)
     app.setWindowIcon(app_icon)
 
     app.setStyle("Fusion")
