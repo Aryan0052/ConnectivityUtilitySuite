@@ -28,7 +28,7 @@ if sys.argv is None:  # never true
     import views.analog_input_view, views.analog_output_view, views.modbus_view  # noqa: F401,E401
     import views.communication_view, views.multi_device_view, views.mft_view  # noqa: F401,E401
     import views.mft_analog_view, views.analog_input_test_mode_view  # noqa: F401,E401
-    import views.analog_input_data_analysis_view  # noqa: F401
+    import views.analog_input_data_analysis_view, views.port_list  # noqa: F401,E401
 
 # Pre-building the pages while the user is on the login / portfolio screen.
 WARMUP_FIRST_MS = 400      # wait after the window is shown
@@ -37,10 +37,11 @@ WARMUP_IDLE_MS = 700       # a warm-up step starts only after the user has not t
 
 
 class InputClock(QObject):
-    """Remembers when the user last pressed a key / moved or clicked the mouse / turned the wheel, so background
+    """Remembers when the user last pressed a key / clicked the mouse / turned the wheel, so background
     work can wait. It sees every event of the application, so it is removed as soon as the warm-up is done."""
+    # (mouse MOVES are not counted: just hovering over the Portfolio would stop the pages from being built)
     _TYPES = frozenset(int(t.value) for t in (QEvent.KeyPress, QEvent.MouseButtonPress, QEvent.MouseButtonRelease,
-                                             QEvent.MouseMove, QEvent.Wheel))
+                                             QEvent.Wheel))
 
     def __init__(self):
         super().__init__()
@@ -392,6 +393,11 @@ def main():
         )
 
     app = QApplication(sys.argv)
+    try:
+        from views import port_list
+        port_list.install()         # COM port list read in the background (no freeze when a page is opened)
+    except ImportError:
+        pass                        # views/port_list.py missing: the pages read the list directly (slower)
 
     # -------------------------------------------------
     # APPLICATION ICON
