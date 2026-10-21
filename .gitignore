@@ -6,3 +6,4 @@ dist/
 *.log
 .venv/
 venv/
+startup_time.txt
