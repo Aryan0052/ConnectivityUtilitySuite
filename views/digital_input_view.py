@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QComboBox,
 
     QFrame,
+    QGridLayout,
 
     QHBoxLayout,
 
@@ -35,12 +36,19 @@ from PySide6.QtWidgets import (
     QPushButton,
 
     QPlainTextEdit,
+    QSizePolicy,
 
     QVBoxLayout,
 
     QWidget,
 
 )
+
+try:
+    from . import ui_theme as ui
+except ImportError:
+    import ui_theme as ui
+
 
 class PdfBackButton(QPushButton):
 
@@ -225,1422 +233,166 @@ class DigitalInputView(QWidget):
         self.build_ui()
 
     def build_ui(self):
-
-        self.setStyleSheet("""
-
-            QWidget#digitalInputView {
-
-                background: #F5FAEF;
-
-            }
-
-            QFrame#header {
-
-                background: qlineargradient(
-
-                    x1: 0,
-
-                    y1: 0,
-
-                    x2: 1,
-
-                    y2: 0,
-
-                    stop: 0 #18A9B5,
-
-                    stop: 1 #19518D
-
-                );
-
-                border: none;
-
-            }
-
-            QLabel#company {
-
-                color: white;
-
-                background: transparent;
-
-                font-family: Cambria;
-
-                font-size: 20px;
-
-                font-weight: bold;
-
-            }
-
-            QLabel#suite {
-
-                color: white;
-
-                background: transparent;
-
-                font-family: Cambria;
-
-                font-size: 16px;
-
-            }
-
-            QFrame#leftPanel,
-
-            QFrame#rightPanel {
-
-                background: white;
-
-                border: 1px solid #70D58A;
-
-                border-radius: 8px;
-
-            }
-
-            QLabel#label {
-
-                color: #202020;
-
-                background: transparent;
-
-                font-family: Cambria;
-
-                font-size: 16px;
-
-            }
-
-            QLabel#sectionTitle {
-
-                color: #222222;
-
-                background: transparent;
-
-                font-family: Cambria;
-
-                font-size: 16px;
-
-                font-weight: bold;
-
-            }
-
-            QLabel#status {
-
-                color: #10C51F;
-
-                background: transparent;
-
-                font-family: Cambria;
-
-                font-size: 16px;
-
-                font-weight: bold;
-
-            }
-
-            QLineEdit,
-
-            QComboBox {
-
-                background: #F1F5F2;
-
-                color: #333333;
-
-                border: 1px solid #C8CFCC;
-
-                border-radius: 7px;
-
-                padding-left: 8px;
-
-                font-family: Cambria;
-
-                font-size: 16px;
-
-                min-height: 27px;
-
-            }
-
-            QComboBox QAbstractItemView {
-
-                background: #F1F5F2;
-
-                color: #333333;
-
-                border: 1px solid #C8CFCC;
-
-                selection-background-color: #DDEBE6;
-
-                selection-color: #222222;
-
-                font-family: Cambria;
-
-                font-size: 16px;
-
-                outline: none;
-
-            }
-
-            QComboBox QAbstractItemView::item {
-
-                background: #F1F5F2;
-
-                color: #333333;
-
-                padding: 4px 8px;
-
-                min-height: 20px;
-
-            }
-
-            QComboBox QAbstractItemView::item:hover {
-
-                background: #E5EFEB;
-
-                color: #222222;
-
-            }
-
-            QPushButton#connect {
-
-                background: #16839F;
-
-                color: white;
-
-                border: none;
-
-                border-radius: 7px;
-
-                font-family: Cambria;
-
-                font-size: 18px;
-
-                font-weight: bold;
-
-            }
-
-            QPushButton#apply {
-
-                background: qlineargradient(
-
-                    x1: 0,
-
-                    y1: 0,
-
-                    x2: 1,
-
-                    y2: 0,
-
-                    stop: 0 #13A9B6,
-
-                    stop: 1 #18548D
-
-                );
-
-                color: white;
-
-                border: none;
-
-                border-radius: 7px;
-
-                font-family: Cambria;
-
-                font-size: 18px;
-
-                font-weight: bold;
-
-            }
-
-            QPushButton#run {
-
-                background: qlineargradient(
-
-                    x1: 0,
-
-                    y1: 0,
-
-                    x2: 1,
-
-                    y2: 0,
-
-                    stop: 0 #13A9B6,
-
-                    stop: 1 #18548D
-
-                );
-
-                color: white;
-
-                border: none;
-
-                border-radius: 7px;
-
-                font-family: Cambria;
-
-                font-size: 18px;
-
-                font-weight: bold;
-
-            }
-
-            QPushButton#run:hover {
-
-                background: #16839F;
-
-            }
-
-            QPushButton#run:pressed {
-
-                background: #14738A;
-
-            }
-
-            QPushButton#refresh {
-
-                background: white;
-
-                color: #16BD34;
-
-                border: 2px solid #48D45C;
-
-                border-radius: 9px;
-
-                font-family: Cambria;
-
-                font-size: 13px;
-
-                font-weight: bold;
-
-            }
-
-        """)
+        # Look: shared with the other pages and the Multi Device page (ui_theme.py). Only widgets and
+        # styles are built here - every attribute the communication code uses keeps its name.
+        ui.install(self)
 
         root_layout = QVBoxLayout(self)
-
-        root_layout.setContentsMargins(
-
-            0,
-
-            0,
-
-            0,
-
-            0
-
-        )
-
+        root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        # HEADER
-
-        header = QFrame()
-
-        header.setObjectName("header")
-
-        header.setFixedHeight(88)
-
-        header_layout = QHBoxLayout(header)
-
-        header_layout.setContentsMargins(
-
-            20,
-
-            5,
-
-            20,
-
-            5
-
-        )
-
-        header_layout.setSpacing(0)
-
-        # Logo
-
-        logo = QLabel()
-
-        if self.logo_path.exists():
-
-            pixmap = QPixmap(
-
-                str(self.logo_path)
-
-            )
-
-            logo.setPixmap(
-
-                pixmap.scaled(
-
-                    62,
-
-                    68,
-
-                    Qt.KeepAspectRatio,
-
-                    Qt.SmoothTransformation
-
-                )
-
-            )
-
-        else:
-
-            logo.setText("Nelumbo")
-
-        logo.setFixedWidth(62)
-
-        logo.setAlignment(
-
-            Qt.AlignCenter
-
-        )
-
-        header_layout.addWidget(logo)
-
-        # Header text
-
-        text_layout = QVBoxLayout()
-
-        text_layout.setSpacing(0)
-
-        company = QLabel(
-
-            "Nelumbo Automation Pvt Ltd"
-
-        )
-
-        company.setObjectName(
-
-            "company"
-
-        )
-
-        suite = QLabel(
-
-            "Connectivity Utility Suite"
-
-        )
-
-        suite.setObjectName(
-
-            "suite"
-
-        )
-
-        text_layout.addStretch()
-
-        text_layout.addWidget(company)
-
-        text_layout.addWidget(suite)
-
-        text_layout.addStretch()
-
-        header_layout.addLayout(
-
-            text_layout
-
-        )
-
-        header_layout.addStretch()
-
-        # Back
-
-        self.back_button = PdfBackButton()
-
-        header_layout.addWidget(
-
-            self.back_button
-
-        )
-
-        root_layout.addWidget(
-
-            header
-
-        )
-
-        # CONTENT
+        # HEADER (logo, back, title, connection status, theme switch)
+        header = ui.Header("Digital Input", root=self)
+        self.back_button = header.back_button
+        status = header.status
+        status_dot = header.status_dot
+        root_layout.addWidget(header)
 
         content = QHBoxLayout()
+        content.setContentsMargins(20, 20, 20, 20)
+        content.setSpacing(16)
 
-        content.setContentsMargins(
-
-            27,
-
-            27,
-
-            20,
-
-            20
-
-        )
-
-        content.setSpacing(20)
-
-        # LEFT PANEL
-
-        left = QFrame()
-
-        left.setObjectName(
-
-            "leftPanel"
-
-        )
-
-        left.setFixedWidth(358)
-
-        left_layout = QVBoxLayout(left)
-
-        left_layout.setContentsMargins(
-
-            14,
-
-            18,
-
-            14,
-
-            14
-
-        )
-
-        left_layout.setSpacing(0)
-
-        # CONNECT
-
-        self.connect_button = QPushButton(
-
-            "CONNECT"
-
-        )
-
-        self.connect_button.setObjectName(
-
-            "connect"
-
-        )
-
-        self.connect_button.setFixedHeight(
-
-            31
-
-        )
-
-        left_layout.addWidget(
-
-            self.connect_button
-
-        )
+        # ------------------------------------------------------------ LEFT: RTU settings + terminal
+        panel = ui.rtu_panel("Digital Input")
+        left = panel.card
+        left_layout = panel.layout
+        self.connect_button = panel.connect
+        self.protocol = panel.protocol
+        self.slave_id = panel.id_edit
+        self.baud_rate = panel.baud
+        self.apply_button = panel.apply
+        self.refresh_button = panel.refresh
+        self.terminal_message = panel.terminal
 
         # Digital Input timeout message shown directly below CONNECT.
-
-        self.digital_input_timeout_label = QLabel("Digital Input Timeout")
-
+        self.digital_input_timeout_label = ui.label("Digital Input Timeout", "pgBad")
         self.digital_input_timeout_label.setAlignment(Qt.AlignCenter)
-
-        self.digital_input_timeout_label.setStyleSheet(
-
-            "color: #D00000; background: transparent; font-family: Cambria; font-size: 15px; font-weight: bold;"
-
-        )
-
         self.digital_input_timeout_label.hide()
-
-        left_layout.addWidget(self.digital_input_timeout_label)
-
-        left_layout.addSpacing(25)
-
-        # STATUS
-
-        status_layout = QHBoxLayout()
-
-        status_dot = QLabel("●")
-
-        status_dot.setStyleSheet("""
-
-            QLabel {
-
-                color: #13D324;
-
-                background: transparent;
-
-                font-size: 16px;
-
-            }
-
-        """)
-
-        status = QLabel(
-
-            "Not Connected"
-
-        )
-
-        status.setObjectName(
-
-            "status"
-
-        )
-
-        status_layout.addWidget(
-
-            status_dot
-
-        )
-
-        status_layout.addWidget(
-
-            status
-
-        )
-
-        status_layout.addStretch()
-
-        left_layout.addLayout(
-
-            status_layout
-
-        )
-
-        left_layout.addSpacing(25)
-
-        # PROTOCOL
-
-        protocol_label = QLabel(
-
-            "Protocol"
-
-        )
-
-        protocol_label.setObjectName(
-
-            "label"
-
-        )
-
-        left_layout.addWidget(
-
-            protocol_label
-
-        )
-
-        left_layout.addSpacing(5)
-
-        self.protocol = QComboBox()
-
-        self.protocol.addItem(
-
-            "Digital Input"
-
-        )
-
-        left_layout.addWidget(
-
-            self.protocol
-
-        )
-
-        left_layout.addSpacing(27)
-
-        # RTU TITLE
-
-        rtu_title = QLabel(
-
-            "RTU Slave Settings"
-
-        )
-
-        rtu_title.setObjectName(
-
-            "sectionTitle"
-
-        )
-
-        left_layout.addWidget(
-
-            rtu_title
-
-        )
-
-        separator = QFrame()
-
-        separator.setFrameShape(
-
-            QFrame.HLine
-
-        )
-
-        separator.setStyleSheet("""
-
-            QFrame {
-
-                color: #BFC4C1;
-
-                background: #BFC4C1;
-
-                border: none;
-
-                min-height: 1px;
-
-            }
-
-        """)
-
-        left_layout.addWidget(
-
-            separator
-
-        )
-
-        left_layout.addSpacing(25)
-
-        # SLAVE ID
-
-        slave_label = QLabel(
-
-            "Slave ID (1-63)"
-
-        )
-
-        slave_label.setObjectName(
-
-            "label"
-
-        )
-
-        left_layout.addWidget(
-
-            slave_label
-
-        )
-
-        left_layout.addSpacing(5)
-
-        self.slave_id = QLineEdit()
-
-        self.slave_id.setText(
-
-            "1"
-
-        )
-
-        left_layout.addWidget(
-
-            self.slave_id
-
-        )
-
-        valid = QLabel(
-
-            "Valid Slave IDs: 1 to 63"
-
-        )
-
-        valid.setObjectName(
-
-            "label"
-
-        )
-
-        valid.setStyleSheet("""
-
-            QLabel {
-
-                color: #555555;
-
-                background: transparent;
-
-                font-size: 16px;
-
-            }
-
-        """)
-
-        left_layout.addWidget(
-
-            valid
-
-        )
-
-        left_layout.addSpacing(24)
-
-        # BAUD
-
-        baud_label = QLabel(
-
-            "RTU Baud Rate"
-
-        )
-
-        baud_label.setObjectName(
-
-            "label"
-
-        )
-
-        left_layout.addWidget(
-
-            baud_label
-
-        )
-
-        left_layout.addSpacing(5)
-
-        self.baud_rate = QComboBox()
-
-        self.baud_rate.addItems([
-
-            "9600",
-
-            "19200",
-
-            "38400",
-
-            "57600",
-
-            "115200"
-
-        ])
-
-        self.baud_rate.setCurrentText(
-
-            "9600"
-
-        )
-
-        self.baud_rate.view().setStyleSheet("""
-
-            QAbstractItemView {
-
-                background: #F1F5F2;
-
-                color: #333333;
-
-                border: 1px solid #C8CFCC;
-
-                selection-background-color: #DDEBE6;
-
-                selection-color: #222222;
-
-                font-family: Cambria;
-
-                font-size: 16px;
-
-            }
-
-            QAbstractItemView::item {
-
-                background: #F1F5F2;
-
-                color: #333333;
-
-                padding: 4px 8px;
-
-                min-height: 20px;
-
-            }
-
-            QAbstractItemView::item:hover {
-
-                background: #E5EFEB;
-
-                color: #222222;
-
-            }
-
-        """)
-
-        left_layout.addWidget(
-
-            self.baud_rate
-
-        )
-
-        left_layout.addSpacing(21)
-
-        # APPLY
-
-        apply_layout = QHBoxLayout()
-
-        apply_layout.addStretch()
-
-        self.apply_button = QPushButton(
-
-            "APPLY"
-
-        )
-
-        self.apply_button.setObjectName(
-
-            "apply"
-
-        )
-
-        self.apply_button.setFixedSize(
-
-            135,
-
-            31
-
-        )
-
-        apply_layout.addWidget(
-
-            self.apply_button
-
-        )
-
-        apply_layout.addStretch()
-
-        left_layout.addLayout(
-
-            apply_layout
-
-        )
-
-        left_layout.addSpacing(17)
-
-        # DEVICE TERMINAL
-
-        terminal_heading = QHBoxLayout()
-
-        terminal_title = QLabel(
-
-            "Device Terminal"
-
-        )
-
-        terminal_title.setObjectName(
-
-            "sectionTitle"
-
-        )
-
-        self.refresh_button = QPushButton(
-
-            "Refresh"
-
-        )
-
-        self.refresh_button.setObjectName(
-
-            "refresh"
-
-        )
-
-        self.refresh_button.setFixedSize(
-
-            68,
-
-            27
-
-        )
-
-        terminal_heading.addWidget(
-
-            terminal_title
-
-        )
-
-        terminal_heading.addStretch()
-
-        terminal_heading.addWidget(
-
-            self.refresh_button
-
-        )
-
-        left_layout.addLayout(
-
-            terminal_heading
-
-        )
-
-        left_layout.addSpacing(7)
-
-        terminal = QFrame()
-
-        terminal.setStyleSheet("""
-
-            QFrame {
-
-                background: #F1F5F2;
-
-                border: 1px solid #E0E5E1;
-
-                border-radius: 7px;
-
-            }
-
-        """)
-
-        terminal.setFixedHeight(
-
-            180
-
-        )
-
-        terminal_layout = QVBoxLayout(terminal)
-
-        terminal_layout.setContentsMargins(6, 6, 6, 6)
-
-        terminal_layout.setSpacing(0)
-
-        self.terminal_message = QPlainTextEdit()
-
-        self.terminal_message.setReadOnly(True)
-
-        self.terminal_message.setFocusPolicy(Qt.NoFocus)
-
-        self.terminal_message.setPlainText("Device Terminal Ready")
-
-        self.terminal_message.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-
-        self.terminal_message.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-
-        self.terminal_message.setStyleSheet("""
-
-            QPlainTextEdit {
-
-                background: #F1F5F2;
-
-                color: #111111;
-
-                border: none;
-
-                padding: 2px 4px;
-
-                font-family: Cambria;
-
-                font-size: 12px;
-
-            }
-
-        """)
-
-        terminal_layout.addWidget(self.terminal_message)
-
-        left_layout.addWidget(
-
-            terminal
-
-        )
-
-        left_layout.addStretch()
-
-        # RIGHT PANEL
-
-        right = QFrame()
-
-        right.setObjectName(
-
-            "rightPanel"
-
-        )
-
-        right_layout = QVBoxLayout(
-
-            right
-
-        )
-
-        right_layout.setContentsMargins(
-
-            15,
-
-            13,
-
-            15,
-
-            13
-
-        )
-
-        # DIGITAL INPUT CHANNELS
-
-        right_layout.setSpacing(0)
-
-        channel_title = QLabel("Digital Input")
-
-        channel_title.setAlignment(Qt.AlignCenter)
-
-        channel_title.setFixedSize(265, 30)
-
-        channel_title.setStyleSheet("""
-
-            QLabel {
-
-                background: qlineargradient(
-
-                    x1: 0,
-
-                    y1: 0,
-
-                    x2: 1,
-
-                    y2: 0,
-
-                    stop: 0 #13A9B6,
-
-                    stop: 1 #18548D
-
-                );
-
-                color: white;
-
-                border: none;
-
-                border-radius: 6px;
-
-                font-family: Cambria;
-
-                font-size: 22px;
-
-                font-weight: normal;
-
-            }
-
-        """)
-
-        title_row = QHBoxLayout()
-
-        title_row.setContentsMargins(0, 0, 0, 0)
-
-        title_row.addStretch()
-
-        title_row.addWidget(channel_title)
-
-        title_row.addStretch()
-
-        right_layout.addLayout(title_row)
-
-        right_layout.addSpacing(10)
-
-        # DIGITAL INPUT COMMUNICATION SETTINGS
-
-        # Separate from the original RTU Settings controls on the left.
-
+        left_layout.insertWidget(2, self.digital_input_timeout_label)
+
+        # ------------------------------------------------------------ RIGHT: Digital Input channels
+        right = ui.card()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(22, 20, 22, 20)
+        right_layout.setSpacing(14)
+
+        title_col = QVBoxLayout()
+        title_col.setSpacing(2)
+        title_col.addWidget(ui.label("Digital Input", "pgTitle"))
+        title_col.addWidget(ui.label("16 channels \u00b7 live ON / OFF state read from the module", "pgSub"))
+        right_layout.addLayout(title_col)
+
+        # Digital Input communication settings (separate from the RTU settings on the left).
+        # Order: Device ID -> Baud Rate -> CONNECT ... RUN
+        # Keep the existing internal variable name di_slave_id so that
+        # communication logic remains unchanged.
         di_settings = QFrame()
-
-        di_settings.setStyleSheet("""
-
-            QFrame {
-
-                background: transparent;
-
-                border: none;
-
-            }
-
-        """)
-
+        di_settings.setObjectName("pgBox")
         di_settings_layout = QHBoxLayout(di_settings)
-
-        di_settings_layout.setContentsMargins(12, 8, 12, 8)
-
+        di_settings_layout.setContentsMargins(14, 10, 14, 10)
         di_settings_layout.setSpacing(10)
 
-        # RIGHT-SIDE DIGITAL INPUT COMMUNICATION SETTINGS
-
-        # Order: Device ID -> Baud Rate -> CONNECT
-
-        # Keep the existing internal variable name di_slave_id so that
-
-        # communication logic remains unchanged.
-
-        di_slave_label = QLabel("Device ID")
-
-        di_slave_label.setObjectName("label")
-
         self.di_slave_id = QLineEdit()
-
         self.di_slave_id.setText("1")
-
-        self.di_slave_id.setFixedWidth(75)
-
-        di_baud_label = QLabel("Baud Rate")
-
-        di_baud_label.setObjectName("label")
-
+        ui.sized(self.di_slave_id, "setFixedWidth", 84)
         self.di_baud_rate = QComboBox()
-
-        self.di_baud_rate.addItems([
-
-            "9600",
-
-            "19200",
-
-            "38400",
-
-            "57600",
-
-            "115200"
-
-        ])
-
+        self.di_baud_rate.addItems(["9600", "19200", "38400", "57600", "115200"])
         self.di_baud_rate.setCurrentText("9600")
+        ui.sized(self.di_baud_rate, "setMinimumWidth", 110)
+        di_connect = ui.button("CONNECT", "primary", 36, alt={"DISCONNECT": "softdanger"})
+        ui.sized(di_connect, "setMinimumWidth", 120)
+        self.run_button = ui.button("RUN", "success", 36, alt={"STOP": "danger"})
+        ui.sized(self.run_button, "setMinimumWidth", 110)
 
-        self.di_baud_rate.setFixedWidth(105)
-
-        self.di_baud_rate.view().setStyleSheet("""
-
-            QAbstractItemView {
-
-                background: #F1F5F2;
-
-                color: #333333;
-
-                border: 1px solid #C8CFCC;
-
-                selection-background-color: #DDEBE6;
-
-                selection-color: #222222;
-
-                font-family: Cambria;
-
-                font-size: 12px;
-
-            }
-
-            QAbstractItemView::item {
-
-                background: #F1F5F2;
-
-                color: #333333;
-
-                padding: 4px 8px;
-
-                min-height: 20px;
-
-            }
-
-            QAbstractItemView::item:hover {
-
-                background: #E5EFEB;
-
-                color: #222222;
-
-            }
-
-        """)
-
-        di_connect = QPushButton("CONNECT")
-
-        di_connect.setObjectName("connect")
-
-        di_connect.setFixedSize(125, 31)
-
-        di_connect.setCursor(Qt.PointingHandCursor)
-
-        di_settings_layout.addWidget(di_slave_label)
-
+        di_settings_layout.addWidget(ui.label("Device ID", "pgField"))
         di_settings_layout.addWidget(self.di_slave_id)
-
         di_settings_layout.addSpacing(6)
-
-        di_settings_layout.addWidget(di_baud_label)
-
+        di_settings_layout.addWidget(ui.label("Baud Rate", "pgField"))
         di_settings_layout.addWidget(self.di_baud_rate)
-
-        di_settings_layout.addSpacing(8)
-
+        di_settings_layout.addSpacing(6)
         di_settings_layout.addWidget(di_connect)
-
         di_settings_layout.addStretch()
-
+        di_settings_layout.addWidget(self.run_button)
         right_layout.addWidget(di_settings)
 
-        right_layout.addSpacing(10)
-
         # Two independent COM connections:
-
         # left CONNECT -> RTU Settings
-
         # right CONNECT -> Digital Input TX/RX
-
         self._di_connect_button = di_connect
-
         self._rtu_connect_button = self.connect_button
-
         di_connect.clicked.connect(self.handle_connect)
-
         self.connect_button.clicked.connect(self.handle_rtu_connect)
 
-        channel_columns = QHBoxLayout()
-
-        channel_columns.setContentsMargins(48, 0, 48, 0)
-
-        channel_columns.setSpacing(55)
-
-        left_channels = QVBoxLayout()
-
-        left_channels.setSpacing(30)
-
-        right_channels = QVBoxLayout()
-
-        right_channels.setSpacing(30)
-
+        # 16 channel tiles, 4 per row: LED + name + ON / OFF
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(12)
         self._di_buttons = []
-
-        def add_channel_row(layout, channel):
-
-            row = QHBoxLayout()
-
-            row.setContentsMargins(0, 0, 0, 0)
-
-            row.setSpacing(44)
-
-            led = QLabel()
-
-            led.setFixedSize(41, 41)
-
-            led.setStyleSheet("""
-
-                QLabel {
-
-                    background: #A0A0A0;
-
-                    border: 1px solid #222222;
-
-                    border-radius: 11px;
-
-                }
-
-            """)
-
-            label = QLabel(f"DI-{channel}")
-
-            label.setAlignment(Qt.AlignCenter)
-
-            label.setFixedSize(83, 30)
-
-            label.setStyleSheet("""
-
-                QLabel {
-
-                    background: #F1F5F2;
-
-                    color: #111111;
-
-                    border: 1px solid #BFC4C1;
-
-                    border-radius: 8px;
-
-                    font-family: Cambria;
-
-                    font-size: 15px;
-
-                }
-
-            """)
-
-            row.addWidget(led)
-
-            row.addWidget(label)
-
-            row.addStretch()
-
-            layout.addLayout(row)
-
+        self._di_tiles = []
+        self._di_state_labels = []
+        for index in range(16):
+            tile = ui.tile()
+            ui.sized(tile, "setMinimumHeight", 96)
+            tile.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            tile_layout = QVBoxLayout(tile)
+            tile_layout.setContentsMargins(14, 10, 14, 10)
+            tile_layout.setSpacing(2)
+            top = QHBoxLayout()
+            top.setSpacing(8)
+            led = ui.led()
+            top.addWidget(led)
+            top.addWidget(ui.label(f"DI-{index + 1}", "pgValue"))
+            top.addStretch()
+            tile_layout.addLayout(top)
+            tile_layout.addStretch()
+            state_label = ui.label("OFF")
+            tile_layout.addWidget(state_label)
+            grid.addWidget(tile, index // 4, index % 4)
             self._di_buttons.append(led)
+            self._di_tiles.append(tile)
+            self._di_state_labels.append(state_label)
+        for column in range(4):
+            grid.setColumnStretch(column, 1)
+        self._reset_di_leds()
+        right_layout.addLayout(grid, 1)
 
-        for channel in range(1, 9):
-
-            add_channel_row(left_channels, channel)
-
-        for channel in range(9, 17):
-
-            add_channel_row(right_channels, channel)
-
-        channel_columns.addLayout(left_channels)
-
-        channel_columns.addLayout(right_channels)
-
-        right_layout.addLayout(channel_columns)
-
-        right_layout.addStretch()
-
-        run_layout = QHBoxLayout()
-
-        run_layout.addStretch()
-
-        self.run_button = QPushButton("RUN")
-
-        self.run_button.setObjectName("run")
-
-        self.run_button.setFixedSize(135, 31)
-
-        self.run_button.setCursor(Qt.PointingHandCursor)
-
-        run_layout.addWidget(self.run_button)
-
-        run_layout.addStretch()
-
-        right_layout.addLayout(run_layout)
-
-        right_layout.addSpacing(20)
-
-        content.addWidget(
-
-            left
-
-        )
-
-        content.addWidget(
-
-            right,
-
-            1
-
-        )
-
-        root_layout.addLayout(
-
-            content,
-
-            1
-
-        )
+        content.addWidget(left)
+        content.addWidget(right, 1)
+        root_layout.addLayout(content, 1)
 
         # Keep references for both independent communication paths.
-
         self._status = status
-
         self._status_dot = status_dot
-
         self._connect_button = self._di_connect_button
 
         # RTU Settings (left side)
-
         self._rtu_slave_id = self.slave_id
-
         self._rtu_baud = self.baud_rate
 
         # Digital Input (right side)
-
         self._slave_id = self.di_slave_id
-
         self._baud = self.di_baud_rate
 
         # BACK NAVIGATION
+        self.back_button.clicked.connect(self.handle_back)
+        self.apply_button.clicked.connect(self.handle_apply_rtu)
+        self.refresh_button.clicked.connect(self.handle_refresh)
+        self.run_button.clicked.connect(self.handle_run)
 
-        self.back_button.clicked.connect(
+    # ---- channel indicator (look only) -------------------------------------------------
+    def _set_di_led(self, index, is_on):
+        """Show one channel as ON (green) or OFF (grey)."""
+        state = "on" if is_on else ""
+        ui.set_state(self._di_buttons[index], state)
+        ui.set_state(self._di_tiles[index], state)
+        self._di_state_labels[index].setText("ON" if is_on else "OFF")
+        ui.tss(self._di_state_labels[index],
+               "QLabel { color:@ok; font-size:22px; font-weight:700; background:transparent; }" if is_on else
+               "QLabel { color:@faint; font-size:22px; font-weight:600; background:transparent; }")
 
-            self.handle_back
-
-        )
-
-        self.apply_button.clicked.connect(
-
-            self.handle_apply_rtu
-
-        )
-
-        self.refresh_button.clicked.connect(
-
-            self.handle_refresh
-
-        )
-
-        self.run_button.clicked.connect(
-
-            self.handle_run
-
-        )
+    def _reset_di_leds(self):
+        for index in range(len(self._di_buttons)):
+            self._set_di_led(index, False)
 
     def _is_raw_tx_rx_message(self, message):
 
@@ -1697,19 +449,12 @@ class DigitalInputView(QWidget):
         scrollbar.setValue(scrollbar.maximum())
 
     def _set_status_color(self, color):
-
         self._status.setStyleSheet(
-
             f"color: {color}; font-weight: bold; font-size: 16px;"
-
         )
-
         if hasattr(self, "_status_dot"):
-
             self._status_dot.setStyleSheet(
-
                 f"color: {color}; background: transparent; font-size: 16px;"
-
             )
 
     def show_com_port_popup(self):
@@ -1728,8 +473,7 @@ class DigitalInputView(QWidget):
 
         dialog.setWindowTitle("COM Port")
 
-        dialog.setFixedSize(360, 190)
-
+        
         layout = QVBoxLayout(dialog)
 
         layout.setContentsMargins(24, 20, 24, 20)
@@ -1738,15 +482,11 @@ class DigitalInputView(QWidget):
 
         title = QLabel("Select COM Port")
 
-        title.setFont(QFont("Cambria", 16))
-
         layout.addWidget(title)
 
         port_box = QComboBox()
 
         port_box.addItems(ports)
-
-        port_box.setFont(QFont("Cambria", 16))
 
         port_box.setFixedHeight(40)
 
@@ -1758,11 +498,7 @@ class DigitalInputView(QWidget):
 
         cancel_button = QPushButton("CANCEL")
 
-        for button in (connect_button, cancel_button):
-
-            button.setFont(QFont("Cambria", 16))
-
-            button.setFixedHeight(38)
+        ui.skin_dialog(dialog, title, port_box, connect_button, cancel_button)
 
         button_row.addWidget(connect_button)
 
@@ -2042,8 +778,7 @@ class DigitalInputView(QWidget):
 
         dialog.setWindowTitle("RTU Settings COM Port")
 
-        dialog.setFixedSize(360, 190)
-
+        
         layout = QVBoxLayout(dialog)
 
         layout.setContentsMargins(24, 20, 24, 20)
@@ -2052,15 +787,11 @@ class DigitalInputView(QWidget):
 
         title = QLabel("Select RTU Settings COM Port")
 
-        title.setFont(QFont("Cambria", 16))
-
         layout.addWidget(title)
 
         port_box = QComboBox()
 
         port_box.addItems(ports)
-
-        port_box.setFont(QFont("Cambria", 16))
 
         port_box.setFixedHeight(40)
 
@@ -2072,11 +803,7 @@ class DigitalInputView(QWidget):
 
         cancel_button = QPushButton("CANCEL")
 
-        for button in (connect_button, cancel_button):
-
-            button.setFont(QFont("Cambria", 16))
-
-            button.setFixedHeight(38)
+        ui.skin_dialog(dialog, title, port_box, connect_button, cancel_button)
 
         button_row.addWidget(connect_button)
 
@@ -2977,23 +1704,7 @@ class DigitalInputView(QWidget):
 
                             )
 
-                            self._di_buttons[index].setStyleSheet(
-
-                                f"""
-
-                                QLabel {{
-
-                                    background: {"#00C928" if is_on else "#A0A0A0"};
-
-                                    border: 1px solid #222222;
-
-                                    border-radius: 11px;
-
-                                }}
-
-                                """
-
-                            )
+                            self._set_di_led(index, is_on)
 
                         for index in range(8):
 
@@ -3003,23 +1714,7 @@ class DigitalInputView(QWidget):
 
                             )
 
-                            self._di_buttons[index + 8].setStyleSheet(
-
-                                f"""
-
-                                QLabel {{
-
-                                    background: {"#00C928" if is_on else "#A0A0A0"};
-
-                                    border: 1px solid #222222;
-
-                                    border-radius: 11px;
-
-                                }}
-
-                                """
-
-                            )
+                            self._set_di_led(index + 8, is_on)
 
                         self._run_waiting_rx = False
 
@@ -3201,21 +1896,7 @@ class DigitalInputView(QWidget):
 
         self._rtu_connected_baud_rate = None
 
-        for led in self._di_buttons:
-
-            led.setStyleSheet("""
-
-                QLabel {
-
-                    background: #A0A0A0;
-
-                    border: 1px solid #222222;
-
-                    border-radius: 11px;
-
-                }
-
-            """)
+        self._reset_di_leds()
 
         self.digital_input_timeout_label.hide()
 
@@ -3228,4 +1909,3 @@ class DigitalInputView(QWidget):
         self.terminal_message.setPlainText("Device Terminal Ready")
 
         self.back_clicked.emit()
-

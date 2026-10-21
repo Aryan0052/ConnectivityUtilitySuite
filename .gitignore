@@ -1,25 +1,8 @@
-# Python cache
-__pycache__/
+﻿__pycache__/
 *.pyc
-
-# Virtual environment
-.venv/
-venv/
-env/
-
-# Build / EXE files
 build/
 dist/
-*.spec
-
-# Logs / temporary files
+*.zip
 *.log
-startup_time.txt
-
-# Test data
-*.csv
-*.xlsx
-
-# IDE
-.vscode/
-.idea/
+.venv/
+venv/

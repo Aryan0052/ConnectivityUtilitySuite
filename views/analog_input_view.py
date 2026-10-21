@@ -18,6 +18,11 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
 )
 
+try:
+    from . import ui_theme as ui
+except ImportError:
+    import ui_theme as ui
+
 
 
 # ============================================================
@@ -205,551 +210,128 @@ class AnalogInputView(QWidget):
 
         self.terminal_messages = ["Device Terminal Ready"]
 
-        self.setStyleSheet("""
-            QWidget {
-                background: #F5FAEF;
-                color: #111111;
-                font-family: Cambria;
-            }
-
-            QFrame#header {
-                background: qlineargradient(
-                    x1: 0, y1: 0,
-                    x2: 1, y2: 0,
-                    stop: 0 #18AEB5,
-                    stop: 1 #19588F
-                );
-            }
-
-            QFrame#leftPanel,
-            QFrame#rightPanel {
-                background: white;
-                border: 1px solid #35D65A;
-                border-radius: 10px;
-            }
-
-            QPushButton#connectButton {
-                background: #1884A1;
-                color: white;
-                border: none;
-                border-radius: 7px;
-                font-family: Cambria;
-                font-size: 18px;
-                font-weight: bold;
-            }
-
-            QPushButton#connectButton:hover {
-                background: #14758F;
-            }
-
-            QPushButton#applyButton {
-                background: qlineargradient(
-                    x1: 0, y1: 0,
-                    x2: 1, y2: 0,
-                    stop: 0 #19B0BA,
-                    stop: 1 #185C96
-                );
-                color: white;
-                border: none;
-                border-radius: 7px;
-                font-size: 18px;
-                font-weight: bold;
-            }
-
-            QPushButton#refreshButton {
-                background: white;
-                color: #18C53D;
-                border: 2px solid #35D65A;
-                border-radius: 12px;
-                font-size: 13px;
-                font-weight: bold;
-            }
-
-            QComboBox,
-            QLineEdit {
-                background: #F0F5F2;
-                border: 1px solid #C7D0CD;
-                border-radius: 8px;
-                padding: 5px 10px;
-                font-family: Cambria;
-                font-size: 16px;
-            }
-
-            QComboBox:focus,
-            QLineEdit:focus {
-                border: 1px solid #25BFC8;
-            }
-
-            QComboBox::drop-down {
-                width: 30px;
-                border: none;
-            }
-
-            QLabel {
-                background: transparent;
-            }
-
-            QLabel#status {
-                color: #00C928;
-                font-weight: bold;
-                font-size: 16px;
-            }
-
-            QLabel#sectionTitle {
-                font-size: 16px;
-                font-weight: bold;
-                border-bottom: 3px solid #BFC5C3;
-                padding-bottom: 5px;
-            }
-
-            QLabel#mainTitle {
-                font-size: 16px;
-                font-weight: bold;
-            }
-
-            QLabel#channelTitle {
-                color: #155B91;
-                font-family: Cambria;
-                font-size: 28px;
-                font-weight: bold;
-            }
-
-            QLabel#smallLabel {
-                font-size: 16px;
-            }
-
-            QFrame#configFrame {
-                background: white;
-                border: 1px solid #222222;
-                border-radius: 10px;
-            }
-
-            QFrame#rangeFrame {
-                background: white;
-                border: 1px solid #222222;
-                border-radius: 10px;
-            }
-
-            QPushButton#okButton {
-                background: #168BA4;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                font-size: 13px;
-                font-weight: bold;
-            }
-
-            QPushButton#channelButton {
-                background: qlineargradient(
-                    x1: 0, y1: 0,
-                    x2: 1, y2: 0,
-                    stop: 0 #A9E0E5,
-                    stop: 1 #AEBFD8
-                );
-                color: #333333;
-                border: 1px solid #9AAEBF;
-                border-radius: 9px;
-                text-align: left;
-                padding-left: 18px;
-                font-size: 14px;
-                font-weight: bold;
-            }
-        """)
-
         self.build_ui()
 
     def build_ui(self):
+        # Look: shared with the other pages and the Multi Device page (ui_theme.py). Only widgets and
+        # styles are built here - every attribute the communication code uses keeps its name.
+        ui.install(self)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ---------------------------------------------------------
-        # HEADER
-        # ---------------------------------------------------------
-
-        header = QFrame()
-        header.setObjectName("header")
-        header.setFixedHeight(88)
-
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(20, 5, 20, 5)
-        header_layout.setSpacing(0)
-
-        logo = QLabel()
-        logo.setFixedSize(62, 68)
-        logo.setAlignment(Qt.AlignCenter)
-
-        logo_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "assets",
-            "NelumboLogo.png"
-        )
-
-        if os.path.exists(logo_path):
-            pixmap = QPixmap(logo_path)
-            if not pixmap.isNull():
-                logo.setPixmap(
-                    pixmap.scaled(
-                        62,
-                        68,
-                        Qt.KeepAspectRatio,
-                        Qt.SmoothTransformation
-                    )
-                )
-
-        header_layout.addWidget(logo)
-
-        title_layout = QVBoxLayout()
-        title_layout.setContentsMargins(0, 0, 0, 0)
-        title_layout.setSpacing(0)
-
-        company = QLabel("Nelumbo Automation Pvt Ltd")
-        company.setFixedHeight(22)
-        company.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
-        company.setStyleSheet("""
-            QLabel {
-                color: white;
-                font-family: Cambria;
-                font-size: 20px;
-                font-weight: bold;
-                padding: 0px;
-                margin: 0px;
-            }
-        """)
-
-        subtitle = QLabel("Connectivity Utility Suite")
-        # Keep enough vertical space for the 16px font at high Windows DPI
-        # scaling so the subtitle is never clipped.
-        subtitle.setFixedHeight(22)
-        subtitle.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        subtitle.setStyleSheet("""
-            QLabel {
-                color: white;
-                font-family: Cambria;
-                font-size: 16px;
-                padding: 0px;
-                margin: 0px;
-            }
-        """)
-
-        title_layout.addStretch()
-        title_layout.addWidget(company)
-        title_layout.addWidget(subtitle)
-        title_layout.addStretch()
-
-        header_layout.addLayout(title_layout)
-        header_layout.addStretch()
-
-        back = BackButton()
-        back.setObjectName("backButton")
-        back.clicked.connect(self.back_clicked.emit)
-
-        header_layout.addWidget(back)
-
+        header = ui.Header("Analog Input", root=self)
+        back = header.back_button
+        status = header.status
+        self._status_dot = header.status_dot
         root.addWidget(header)
 
-        # ---------------------------------------------------------
-        # MAIN AREA
-        # ---------------------------------------------------------
-
         main = QWidget()
-        main.setStyleSheet("background: #F5FAEF;")
-
         main_layout = QHBoxLayout(main)
-        main_layout.setContentsMargins(24, 26, 24, 20)
-        main_layout.setSpacing(34)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(16)
 
-        # ---------------------------------------------------------
-        # LEFT PANEL
-        # ---------------------------------------------------------
+        # ------------------------------------------------------------ LEFT: RTU settings + terminal
+        panel = ui.rtu_panel("Analog Input", id_label="Device ID (1-63)",
+                             id_hint="Valid Device IDs: 1 to 63", section_title="RTU Device Settings")
+        left_panel = panel.card
+        connect, slave_id, baud = panel.connect, panel.id_edit, panel.baud
+        apply_button, refresh = panel.apply, panel.refresh
+        self.terminal_message = panel.terminal
+        ui.sized(self.terminal_message, "setMinimumHeight", 180)
 
-        left_panel = QFrame()
-        left_panel.setObjectName("leftPanel")
-        left_panel.setMinimumWidth(355)
-        left_panel.setMaximumWidth(390)
-
-        left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(20, 18, 20, 18)
-        left_layout.setSpacing(10)
-
-        connect = QPushButton("CONNECT")
-        connect.setObjectName("connectButton")
-        connect.setFixedHeight(48)
-        connect.setEnabled(True)
-        connect.setVisible(True)
-        connect.setStyleSheet("""
-            QPushButton {
-                background-color: #1884A1;
-                color: white;
-                border: none;
-                border-radius: 7px;
-                font-family: Cambria;
-                font-size: 18px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #14758F;
-            }
-            QPushButton:pressed {
-                background-color: #126B82;
-            }
-            QPushButton:disabled {
-                background-color: #1884A1;
-                color: white;
-            }
-        """)
-
-        left_layout.addWidget(connect)
-
-        status = QLabel("● Not Connected")
-        status.setObjectName("status")
-        left_layout.addWidget(status)
-
-        protocol_label = QLabel("Protocol")
-        protocol_label.setObjectName("smallLabel")
-        left_layout.addWidget(protocol_label)
-
-        protocol = QComboBox()
-        protocol.addItem("Analog Input")
-        protocol.setFixedHeight(38)
-        left_layout.addWidget(protocol)
-
-        section = QLabel("RTU Device Settings")
-        section.setObjectName("sectionTitle")
-        left_layout.addWidget(section)
-
-        slave_label = QLabel("Device ID (1-63)")
-        slave_label.setObjectName("smallLabel")
-        left_layout.addWidget(slave_label)
-
-        slave_id = QLineEdit("1")
-        slave_id.setFixedHeight(38)
-        left_layout.addWidget(slave_id)
-
-        valid = QLabel("Valid Device IDs: 1 to 63")
-        valid.setStyleSheet("""
-            color: #555555;
-            font-family: Cambria;
-            font-size: 16px;
-        """)
-        left_layout.addWidget(valid)
-
-        baud_label = QLabel("RTU Baud Rate")
-        baud_label.setObjectName("smallLabel")
-        left_layout.addWidget(baud_label)
-
-        baud = QComboBox()
-        baud.addItems([
-            "9600",
-            "19200",
-            "38400",
-            "57600",
-            "115200"
-        ])
-        baud.setFixedHeight(38)
-        left_layout.addWidget(baud)
-
-        apply_button = QPushButton("APPLY")
-        apply_button.setObjectName("applyButton")
-        apply_button.setFixedSize(136, 44)
-        apply_button.setEnabled(True)
-        apply_button.setVisible(True)
-        apply_button.setStyleSheet("""
-            QPushButton {
-                background-color: #1884A1;
-                color: white;
-                border: none;
-                border-radius: 7px;
-                font-family: Cambria;
-                font-size: 18px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #14758F;
-            }
-            QPushButton:pressed {
-                background-color: #126B82;
-            }
-            QPushButton:disabled {
-                background-color: #1884A1;
-                color: white;
-            }
-        """)
-
-        apply_layout = QHBoxLayout()
-        apply_layout.addStretch()
-        apply_layout.addWidget(apply_button)
-        apply_layout.addStretch()
-
-        left_layout.addLayout(apply_layout)
-
-        terminal_header = QHBoxLayout()
-
-        terminal_title = QLabel("Device Terminal")
-        terminal_title.setStyleSheet("""
-            font-family: Cambria;
-            font-size: 16px;
-            font-weight: bold;
-        """)
-
-        refresh = QPushButton("Refresh")
-        refresh.setObjectName("refreshButton")
-        refresh.setFixedSize(82, 40)
-
-        terminal_header.addWidget(terminal_title)
-        terminal_header.addStretch()
-        terminal_header.addWidget(refresh)
-
-        left_layout.addLayout(terminal_header)
-
-        self.terminal_message = QPlainTextEdit()
-        self.terminal_message.setReadOnly(True)
-        self.terminal_message.setFixedHeight(180)
-        self.terminal_message.setFont(QFont("Cambria", 12))
-        self.terminal_message.setPlainText("Device Terminal Ready")
-        left_layout.addWidget(self.terminal_message)
-
-        left_layout.addStretch()
-
-        # ---------------------------------------------------------
-        # RIGHT PANEL
-        # ---------------------------------------------------------
-        right_panel = QFrame()
-        right_panel.setObjectName("rightPanel")
-
+        # ------------------------------------------------------------ RIGHT: communication + channels
+        right_panel = ui.card()
         right_layout = QVBoxLayout(right_panel)
         self.right_layout = right_layout
-        right_layout.setContentsMargins(
-            40,
-            20,
-            40,
-            20
-        )
+        right_layout.setContentsMargins(22, 20, 22, 20)
         right_layout.setSpacing(0)
 
-        # ---------------------------------------------------------
-        # ANALOG INPUT COMMUNICATION SETTINGS
-        # ---------------------------------------------------------
-        communication_row = QHBoxLayout()
-        communication_row.setContentsMargins(0, 0, 0, 12)
-        communication_row.setSpacing(14)
+        title_col = QVBoxLayout()
+        title_col.setSpacing(2)
+        title_col.addWidget(ui.label("Analog Input", "pgTitle"))
+        title_col.addWidget(ui.label("8 channels \u00b7 pick a channel to set input type, zero and span", "pgSub"))
+        right_layout.addLayout(title_col)
+        right_layout.addSpacing(14)
 
-        analog_slave_label = QLabel("Device ID")
-        analog_slave_label.setObjectName("smallLabel")
-        communication_row.addWidget(analog_slave_label)
+        # Analog Input communication settings (separate from the RTU settings on the left).
+        comm_box = QFrame()
+        comm_box.setObjectName("pgBox")
+        communication_row = QHBoxLayout(comm_box)
+        communication_row.setContentsMargins(14, 10, 14, 10)
+        communication_row.setSpacing(10)
 
         analog_slave_id = QLineEdit("1")
-        analog_slave_id.setFixedSize(75, 38)
+        ui.sized(analog_slave_id, "setFixedWidth", 84)
         analog_slave_id.setValidator(QIntValidator(1, 63, self))
-        communication_row.addWidget(analog_slave_id)
-
-        analog_baud_label = QLabel("Baud Rate")
-        analog_baud_label.setObjectName("smallLabel")
-        communication_row.addWidget(analog_baud_label)
-
         analog_baud = QComboBox()
         analog_baud.addItems(["9600", "19200", "38400", "57600", "115200"])
-        analog_baud.setFixedSize(120, 38)
+        ui.sized(analog_baud, "setMinimumWidth", 110)
+        analog_connect = ui.button("CONNECT", "primary", 36, alt={"DISCONNECT": "softdanger"})
+        ui.sized(analog_connect, "setMinimumWidth", 130)
+
+        communication_row.addWidget(ui.label("Device ID", "pgField"))
+        communication_row.addWidget(analog_slave_id)
+        communication_row.addSpacing(6)
+        communication_row.addWidget(ui.label("Baud Rate", "pgField"))
         communication_row.addWidget(analog_baud)
-
-        analog_connect = QPushButton("CONNECT")
-        analog_connect.setObjectName("connectButton")
-        analog_connect.setFixedSize(190, 44)
-        analog_connect.setStyleSheet("""
-            QPushButton {
-                background-color: #1884A1;
-                color: white;
-                border: none;
-                border-radius: 7px;
-                font-family: Cambria;
-                font-size: 18px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #14758F;
-            }
-            QPushButton:pressed {
-                background-color: #126B82;
-            }
-        """)
+        communication_row.addSpacing(6)
         communication_row.addWidget(analog_connect)
-
         communication_row.addStretch()
-        right_layout.addLayout(communication_row)
+        right_layout.addWidget(comm_box)
+        right_layout.addSpacing(16)
 
-        # ---------------------------------------------------------
-        # ANALOG INPUT CHANNELS
-        # ---------------------------------------------------------
-        channel_title = QLabel("Analog Input Channel")
-        channel_title.setObjectName("channelTitle")
-        channel_title.setAlignment(Qt.AlignCenter)
-        right_layout.addWidget(channel_title)
+        # ANALOG INPUT CHANNELS (config box is inserted under the clicked channel by channel_selected)
+        right_layout.addWidget(ui.section("Analog Input Channel"))
         right_layout.addSpacing(10)
 
         self._channel_selectors = []
         self._channel_rows = []
 
         for channel in range(1, 9):
-            channel_button = QPushButton(
-                f"Analog Input Channel - {channel}"
-            )
-            channel_button.setObjectName("channelButton")
+            channel_button = QPushButton(f"Analog Input Channel - {channel}")
+            channel_button.setObjectName("pgChannel")
             channel_button.setProperty("selected", False)
-            channel_button.setFixedSize(340, 44)
-            channel_button.setStyleSheet("""
-                QPushButton#channelButton {
-                    background: white;
-                    color: #263746;
-                    border: 1px solid #D3DDDA;
-                    border-radius: 9px;
-                    text-align: left;
-                    padding-left: 18px;
-                    font-family: Cambria;
-                    font-size: 16px;
-                    font-weight: normal;
-                }
-
-                QPushButton#channelButton:hover {
-                    border: 1px solid #1684BE;
-                    background: #F8FCFB;
-                }
-
-                QPushButton#channelButton[selected="true"] {
-                    border: 1px solid #1684BE;
-                    background: #F1F8FF;
-                }
-            """)
+            channel_button.setCursor(Qt.PointingHandCursor)
+            channel_button.setFocusPolicy(Qt.NoFocus)
+            ui.sized(channel_button, "setMinimumWidth", 380)
+            ui.sized(channel_button, "setMaximumWidth", 560)
+            ui.sized(channel_button, "setFixedHeight", 42)
             channel_button.clicked.connect(
                 lambda checked=False, ch=channel: self.channel_selected(ch)
             )
 
             row = QHBoxLayout()
             row.setContentsMargins(0, 0, 0, 0)
-            row.addStretch()
-            row.addWidget(channel_button)
-            row.addStretch()
+            row.addWidget(channel_button, 1)
+            row.addStretch(1)
             right_layout.addLayout(row)
-            right_layout.addSpacing(10)
+            right_layout.addSpacing(8)
             self._channel_selectors.append(channel_button)
             self._channel_rows.append(row)
 
-        # ---------------------------------------------------------
         # CHANNEL CONFIGURATION BOX
-        # ---------------------------------------------------------
         self._channel_config_frame = QFrame()
-        self._channel_config_frame.setObjectName("configFrame")
-        self._channel_config_frame.setFixedSize(330, 150)
+        self._channel_config_frame.setObjectName("pgBox")
+        ui.sized(self._channel_config_frame, "setMinimumWidth", 380)
+        ui.sized(self._channel_config_frame, "setMaximumWidth", 560)
         self._channel_config_frame.setVisible(False)
 
         config_layout = QVBoxLayout(self._channel_config_frame)
-        config_layout.setContentsMargins(10, 8, 10, 8)
-        config_layout.setSpacing(7)
+        config_layout.setContentsMargins(14, 12, 14, 12)
+        config_layout.setSpacing(10)
+
+        def mini_apply():
+            b = ui.button("APPLY", "primary", 30)
+            b.setObjectName("pgMini")
+            ui.sized(b, "setFixedWidth", 70)
+            return b
 
         input_row = QHBoxLayout()
-        input_label = QLabel("I/P Type")
-        input_label.setObjectName("smallLabel")
-
+        input_row.setSpacing(10)
+        input_label = ui.label("I/P Type", "pgField")
+        ui.sized(input_label, "setMinimumWidth", 80)
         self._input_type = QComboBox()
         self._input_type.addItems([
             "0-50mV",
@@ -762,107 +344,42 @@ class AnalogInputView(QWidget):
             "4-20mA",
             "0-20mA",
         ])
-        self._input_type.setFixedWidth(175)
-        self._input_type.setFixedHeight(30)
-        self._input_type.setStyleSheet("""
-            QComboBox {
-                padding-right: 2px;
-            }
-            QComboBox QAbstractItemView {
-                min-width: 240px;
-            }
-        """)
+        ui.sized(self._input_type, "setMinimumWidth", 190)
+        input_ok = mini_apply()
         input_row.addWidget(input_label)
-        input_row.addWidget(self._input_type)
-        input_ok = QPushButton("APPLY")
-        input_ok.setObjectName("okButton")
-        input_ok.setFixedSize(45, 28)
-        input_ok.setStyleSheet("""
-            QPushButton {
-                background: #168BA4;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                font-family: Cambria;
-                font-size: 13px;
-                font-weight: bold;
-            }
-        """)
+        input_row.addWidget(self._input_type, 1)
         input_row.addWidget(input_ok)
         input_ok.clicked.connect(self.handle_channel1_input_type_ok)
         config_layout.addLayout(input_row)
 
         min_row = QHBoxLayout()
-        min_label = QLabel("Zero Value")
-        min_label.setObjectName("smallLabel")
+        min_row.setSpacing(10)
+        min_label = ui.label("Zero Value", "pgField")
+        ui.sized(min_label, "setMinimumWidth", 80)
         self._min_offset = QLineEdit("-20000")
-        self._min_offset.setFixedWidth(75)
-        self._min_offset.setFixedHeight(28)
         self._min_offset.setValidator(QIntValidator(-20000, 20000, self))
+        min_ok = mini_apply()
         min_row.addWidget(min_label)
-        min_row.addStretch()
-        min_row.addWidget(self._min_offset)
-        min_ok = QPushButton("APPLY")
-        min_ok.setObjectName("okButton")
-        min_ok.setFixedSize(45, 28)
-        min_ok.setStyleSheet("""
-            QPushButton {
-                background: #168BA4;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                font-family: Cambria;
-                font-size: 13px;
-                font-weight: bold;
-            }
-        """)
+        min_row.addWidget(self._min_offset, 1)
         min_row.addWidget(min_ok)
         min_ok.clicked.connect(self.handle_channel1_min_offset_ok)
         config_layout.addLayout(min_row)
 
         max_row = QHBoxLayout()
-        max_label = QLabel("Span Value")
-        max_label.setObjectName("smallLabel")
+        max_row.setSpacing(10)
+        max_label = ui.label("Span Value", "pgField")
+        ui.sized(max_label, "setMinimumWidth", 80)
         self._max_offset = QLineEdit("+20000")
-        self._max_offset.setFixedWidth(75)
-        self._max_offset.setFixedHeight(28)
         self._max_offset.setValidator(QIntValidator(-20000, 20000, self))
+        max_ok = mini_apply()
         max_row.addWidget(max_label)
-        max_row.addStretch()
-        max_row.addWidget(self._max_offset)
-        max_ok = QPushButton("APPLY")
-        max_ok.setObjectName("okButton")
-        max_ok.setFixedSize(45, 28)
-        max_ok.setStyleSheet("""
-            QPushButton {
-                background: #168BA4;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                font-family: Cambria;
-                font-size: 13px;
-                font-weight: bold;
-            }
-        """)
+        max_row.addWidget(self._max_offset, 1)
         max_row.addWidget(max_ok)
         max_ok.clicked.connect(self.handle_channel1_max_offset_ok)
         config_layout.addLayout(max_row)
 
-        # Channel 1 configuration refresh button.
-        channel_refresh = QPushButton("Refresh")
-        channel_refresh.setObjectName("okButton")
-        channel_refresh.setFixedSize(82, 28)
-        channel_refresh.setStyleSheet("""
-            QPushButton {
-                background: #168BA4;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                font-family: Cambria;
-                font-size: 13px;
-                font-weight: bold;
-            }
-        """)
+        # Channel configuration refresh button.
+        channel_refresh = ui.button("\u27f3  Refresh", "ghost")
         channel_refresh.setVisible(False)
         channel_refresh.clicked.connect(self.handle_channel_refresh)
 
@@ -870,42 +387,26 @@ class AnalogInputView(QWidget):
         channel_refresh_row.setContentsMargins(0, 0, 0, 0)
         channel_refresh_row.addStretch()
         channel_refresh_row.addWidget(channel_refresh)
-        channel_refresh_row.addStretch()
         config_layout.addLayout(channel_refresh_row)
 
         self._channel_refresh_button = channel_refresh
 
         # Test Mode button.
-        test_mode_button = QPushButton("TEST MODE")
-        test_mode_button.setObjectName("applyButton")
-        test_mode_button.setFixedSize(110, 28)
-        test_mode_button.setStyleSheet("""
-            QPushButton {
-                background: #168BA4;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                font-family: Cambria;
-                font-size: 13px;
-                font-weight: bold;
-            }
-        """)
-
+        test_mode_button = ui.button("TEST MODE", "secondary", 36)
+        ui.sized(test_mode_button, "setMinimumWidth", 130)
         self._test_mode_button = test_mode_button
 
-
         config_row = QHBoxLayout()
-        config_row.setContentsMargins(0, 0, 0, 0)
-        config_row.addStretch()
-        config_row.addWidget(self._channel_config_frame)
-        config_row.addStretch()
+        config_row.setContentsMargins(0, 4, 0, 0)
+        config_row.addWidget(self._channel_config_frame, 1)
+        config_row.addStretch(1)
         self._channel_config_row = config_row
         right_layout.addLayout(config_row)
 
         right_layout.addStretch()
 
         test_mode_row = QHBoxLayout()
-        test_mode_row.setContentsMargins(0, 0, 0, 0)
+        test_mode_row.setContentsMargins(0, 10, 0, 0)
         test_mode_row.addStretch()
         test_mode_row.addWidget(test_mode_button)
         right_layout.addLayout(test_mode_row)
@@ -913,10 +414,7 @@ class AnalogInputView(QWidget):
         main_layout.addWidget(left_panel)
         main_layout.addWidget(right_panel, 1)
 
-        main_layout.addWidget(right_panel, 1)
-
-        # Keep the existing header fixed and allow only the main area
-        # to scroll vertically when high Windows DPI scaling needs it.
+        # Header stays fixed; only the main area scrolls when the window is small / DPI is high.
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -955,9 +453,7 @@ class AnalogInputView(QWidget):
         self.refresh_button.clicked.connect(self.handle_refresh)
 
     def _set_status_color(self, color):
-        self._status.setStyleSheet(
-            f"color: {color}; font-weight: bold; font-size: 16px;"
-        )
+        ui.set_status(self._status, getattr(self, "_status_dot", None), color)
 
     def add_terminal_message(self, message):
         self.terminal_messages.append(str(message))
@@ -979,19 +475,16 @@ class AnalogInputView(QWidget):
 
         dialog = QDialog(self)
         dialog.setWindowTitle("COM Port")
-        dialog.setFixedSize(360, 190)
-
+        
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(12)
 
         title = QLabel("Select COM Port")
-        title.setFont(QFont("Cambria", 16))
         layout.addWidget(title)
 
         port_box = QComboBox()
         port_box.addItems(ports)
-        port_box.setFont(QFont("Cambria", 16))
         port_box.setFixedHeight(40)
         layout.addWidget(port_box)
 
@@ -999,9 +492,7 @@ class AnalogInputView(QWidget):
         connect_button = QPushButton("CONNECT")
         cancel_button = QPushButton("CANCEL")
 
-        for button in (connect_button, cancel_button):
-            button.setFont(QFont("Cambria", 16))
-            button.setFixedHeight(38)
+        ui.skin_dialog(dialog, title, port_box, connect_button, cancel_button)
 
         button_row.addWidget(connect_button)
         button_row.addWidget(cancel_button)
@@ -1141,19 +632,16 @@ class AnalogInputView(QWidget):
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Analog Input COM Port")
-        dialog.setFixedSize(360, 190)
-
+        
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(12)
 
         title = QLabel("Select COM Port")
-        title.setFont(QFont("Cambria", 16))
         layout.addWidget(title)
 
         port_box = QComboBox()
         port_box.addItems(ports)
-        port_box.setFont(QFont("Cambria", 16))
         port_box.setFixedHeight(40)
         layout.addWidget(port_box)
 
@@ -1161,9 +649,7 @@ class AnalogInputView(QWidget):
         connect_button = QPushButton("CONNECT")
         cancel_button = QPushButton("CANCEL")
 
-        for button in (connect_button, cancel_button):
-            button.setFont(QFont("Cambria", 16))
-            button.setFixedHeight(38)
+        ui.skin_dialog(dialog, title, port_box, connect_button, cancel_button)
 
         button_row.addWidget(connect_button)
         button_row.addWidget(cancel_button)
