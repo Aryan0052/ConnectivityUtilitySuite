@@ -31,9 +31,9 @@ if sys.argv is None:  # never true
     import views.analog_input_data_analysis_view, views.port_list  # noqa: F401,E401
 
 # Pre-building the pages while the user is on the login / portfolio screen.
-WARMUP_FIRST_MS = 400      # wait after the window is shown
-WARMUP_GAP_MS = 120        # pause between two warm-up steps
-WARMUP_IDLE_MS = 700       # a warm-up step starts only after the user has not typed / clicked for this long
+WARMUP_FIRST_MS = 150      # wait after the window is shown
+WARMUP_GAP_MS = 40         # pause between two warm-up steps
+WARMUP_IDLE_MS = 400       # a warm-up step starts only after the user has not typed / clicked for this long
 
 
 class InputClock(QObject):
@@ -250,8 +250,8 @@ class MainWindow(QMainWindow):
         QApplication.instance().installEventFilter(self._input_clock)
         steps = [self._ensure_portfolio, lambda: self._prepare_view(self._ensure_portfolio())]
         steps += [lambda mod=module_name: importlib.import_module("views." + mod) for module_name, _c in self._VIEW_SPECS.values()]
-        # Multi Device is the biggest page (~0.5 s to build): it is built last
-        order = [k for k in self._VIEW_SPECS if k != "multi_device"] + ["multi_device"]
+        # Multi Device is the biggest page (built in pieces): it is built first, so it is ready soonest
+        order = ["multi_device"] + [k for k in self._VIEW_SPECS if k != "multi_device"]
         for key in order:
             steps.append(lambda k=key: self._build_piece(k))
             steps.append(lambda k=key: self._prepare_view(self._ensure_view(k)))
@@ -265,6 +265,24 @@ class MainWindow(QMainWindow):
         step = getattr(view, "build_step", None)
         if callable(step) and not step():
             self._warmup_steps.insert(0, lambda: self._build_piece(key))
+
+    def preload_all_pages(self):
+        """Build every page while the window is still hidden, so the application opens only when everything
+        is ready and every page opens at once. Returns False if a page could not be built (that page is then
+        built when it is first opened, as before)."""
+        ok = True
+        try:
+            self._prepare_view(self._ensure_portfolio())
+        except Exception:
+            ok = False
+        order = ["multi_device"] + [k for k in self._VIEW_SPECS if k != "multi_device"]
+        for key in order:
+            try:
+                view = self._ensure_view(key)            # complete build (Multi Device: all its pieces)
+                self._prepare_view(view)
+            except Exception:
+                ok = False
+        return ok
 
     def _hold_slideshow(self, hold):
         # the Portfolio slide show stands still while pages are being built (a build can take a moment)
@@ -414,6 +432,7 @@ def main():
     app.setStyle("Fusion")
 
     preload_login_assets()          # decode the 4K login artwork in a thread while the window is built
+    _preload_portfolio()            # Portfolio pictures too
     window = MainWindow()
 
     # Explicitly apply the same icon to the main window.
@@ -436,9 +455,18 @@ def main():
         screen.y() + (screen.height() - window.height()) // 2,
     )
 
+    # Every page is built BEFORE the window appears (nothing is shown meanwhile, only the busy mouse
+    # cursor), at the full-screen size because the text size follows the window size. When the window opens,
+    # every page opens at once.
+    app.setOverrideCursor(Qt.WaitCursor)
+    window.resize(screen.width(), screen.height())
+    window.layout().activate()
+    all_built = window.preload_all_pages()
+    app.restoreOverrideCursor()
+
     window.showMaximized()          # the application opens full screen
-    QTimer.singleShot(0, _preload_portfolio)
-    window._start_warmup()
+    if not all_built:
+        window._start_warmup()      # a page that failed is tried again in the background
 
     sys.exit(app.exec())
 

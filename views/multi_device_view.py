@@ -34,7 +34,6 @@ try:
                               DATA_FORMATS, WORD_ORDERS, WIDE_FORMATS, ENABLE_FORMATS, effective_format, format_value,
                               MFT_PARAMS)
     from .db_writer import ReadingDatabaseWriter
-    from .history_views import HistoryTab, TrendsTab
     from .analytics_view import DashboardTab
     from . import live_console as lc
     from . import modbus_tcp_ip as tcpip     # "Modbus TCP (IP)" connection type
@@ -46,7 +45,6 @@ except ImportError:
                              DATA_FORMATS, WORD_ORDERS, WIDE_FORMATS, ENABLE_FORMATS, effective_format, format_value,
                               MFT_PARAMS)
     from db_writer import ReadingDatabaseWriter
-    from history_views import HistoryTab, TrendsTab
     from analytics_view import DashboardTab
     import live_console as lc
     import modbus_tcp_ip as tcpip
@@ -1974,14 +1972,9 @@ class MultiDeviceView(QWidget):
         body_layout.addWidget(self._stack, 1)
         body_scroll.setWidget(body)
         yield                                   # build piece done (see build_step)
-        self.history_tab = HistoryTab()
-        self.trends_tab = TrendsTab()
-        yield                                   # build piece done (see build_step)
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
-        self.history_tab.setObjectName("histTab")
-        self.trends_tab.setObjectName("trendsTab")
-        # History / Trends: page background and date boxes follow light / dark like the other pages
+        # page background and date boxes follow light / dark like the other pages
         _ss(self.tabs, """
             QTabWidget, QTabWidget > QStackedWidget { background:#F3F8FC; }
             QTabWidget::pane { background:#F3F8FC; border:0; }
@@ -1997,9 +1990,6 @@ class MultiDeviceView(QWidget):
         self.tabs.addTab(self.dashboard_tab, "Dashboard")
         yield                                   # build piece done (see build_step)
         self.tabs.addTab(body_scroll, "Live")
-        yield                                   # build piece done (see build_step)
-        self.tabs.addTab(self.history_tab, "History")
-        self.tabs.addTab(self.trends_tab, "Trends")
         yield                                   # build piece done (see build_step)
         self.tabs.tabBar().hide()
         self._header.hide()
@@ -3020,9 +3010,8 @@ class MultiDeviceView(QWidget):
             self._open_spotlight(self._last_selected if self._last_selected in self._devices
                                  else sorted(self._devices)[0])
 
-    _NAV_PAGES = ("dashboard", "live", "history", "trends")
-    _NAV_TITLES = {"dashboard": "Dashboard", "live": "Live", "history": "History", "trends": "Trends",
-                   "setup": "Setup"}
+    _NAV_PAGES = ("dashboard", "live")
+    _NAV_TITLES = {"dashboard": "Dashboard", "live": "Live", "setup": "Setup"}
 
     def _nav_to(self, key):
         if key == "setup":
@@ -4236,8 +4225,7 @@ class MultiDeviceView(QWidget):
             QTimer.singleShot(0, lambda: self._spot_sid is None and self._devices
                               and self._open_spotlight(self._last_selected if self._last_selected in self._devices
                                                        else sorted(self._devices)[0]))
-        for tab in (self.dashboard_tab, self.history_tab, self.trends_tab):
-            tab.set_devices(devices_now)
+        self.dashboard_tab.set_devices(devices_now)
         while self.data_layout.count():
             item = self.data_layout.takeAt(0)
             widget = item.widget()

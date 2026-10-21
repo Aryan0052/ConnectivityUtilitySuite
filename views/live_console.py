@@ -485,7 +485,7 @@ class LogoTile(QWidget):
 
 class NavRail(QFrame):
     picked = Signal(str)
-    ITEMS = (("dashboard", "Dashboard"), ("live", "Live"), ("history", "History"), ("trends", "Trends"))
+    ITEMS = (("dashboard", "Dashboard"), ("live", "Live"))
 
     def __init__(self):
         super().__init__()
