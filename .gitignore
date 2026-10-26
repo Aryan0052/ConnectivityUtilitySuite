@@ -7,3 +7,5 @@ dist/
 .venv/
 venv/
 startup_time.txt
+database/mongo_uri.txt
+assets/13_icon.jpg

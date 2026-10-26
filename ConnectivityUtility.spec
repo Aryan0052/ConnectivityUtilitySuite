@@ -26,7 +26,7 @@ def _square_ico(src='assets/13.ico', dst='build/app_icon.ico'):
     return dst
 
 
-ICON = _square_ico()
+ICON = 'assets/app_icon.ico' if os.path.exists('assets/app_icon.ico') else _square_ico()   # your own .ico wins
 
 
 a = Analysis(

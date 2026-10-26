@@ -423,14 +423,96 @@ def _square_icon(path):
     return icon
 
 
+def _set_taskbar_icon(window, picture_path):
+    """Windows: put the logo on the window's taskbar button (and title bar) with the Windows API.
+
+    The taskbar uses the window's "big" icon before the exe's icon, and Qt can hand Windows an empty one
+    (this application runs Qt at a 1/1.5 scale factor). So the icon is set here directly: from the exe itself
+    when it is the built exe (its icon is assets/app_icon.ico), else from the picture written as a real .ico.
+    It is set on the window AND its window class, and again 1 s and 3 s later in case Qt replaces it.
+    What happened is written to %TEMP%\\nelumbo_icon_log.txt."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    import tempfile
+    log_path = os.path.join(tempfile.gettempdir(), "nelumbo_icon_log.txt")
+
+    def log(text):
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(time.strftime("%H:%M:%S ") + text + "\n")
+        except OSError:
+            pass
+
+    try:
+        user32 = ctypes.windll.user32
+        shell32 = ctypes.windll.shell32
+        user32.LoadImageW.restype = ctypes.c_void_p
+        user32.LoadImageW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_uint,
+                                      ctypes.c_int, ctypes.c_int, ctypes.c_uint]
+        user32.SendMessageW.restype = ctypes.c_void_p
+        user32.SendMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p]
+        set_class = getattr(user32, "SetClassLongPtrW", None) or user32.SetClassLongW
+        set_class.restype = ctypes.c_void_p
+        set_class.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+        shell32.ExtractIconExW.argtypes = [ctypes.c_wchar_p, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p),
+                                           ctypes.POINTER(ctypes.c_void_p), ctypes.c_uint]
+        big = small = None
+        if getattr(sys, "frozen", False):              # the built exe: take the icon built into it
+            large_h, small_h = ctypes.c_void_p(), ctypes.c_void_p()
+            if shell32.ExtractIconExW(sys.executable, 0, ctypes.byref(large_h), ctypes.byref(small_h), 1):
+                big, small = large_h.value, small_h.value
+        if not big:                                    # python app.py, or no icon in the exe
+            from PySide6.QtGui import QImage, QPainter
+            picture = QImage(picture_path)
+            if not picture.isNull():
+                side = 256
+                scaled = picture.scaled(side, side, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                square = QImage(side, side, QImage.Format_ARGB32)
+                square.fill(Qt.transparent)
+                painter = QPainter(square)
+                painter.drawImage((side - scaled.width()) // 2, (side - scaled.height()) // 2, scaled)
+                painter.end()
+                ico_path = os.path.join(tempfile.gettempdir(), "nelumbo_connectivity_utility.ico")
+                if square.save(ico_path, "ICO"):
+                    big_size = user32.GetSystemMetrics(11) or 32       # SM_CXICON
+                    small_size = user32.GetSystemMetrics(49) or 16     # SM_CXSMICON
+                    big = user32.LoadImageW(None, ico_path, 1, big_size, big_size, 0x10)
+                    small = user32.LoadImageW(None, ico_path, 1, small_size, small_size, 0x10)
+        if not big:
+            log(f"no icon found (frozen={getattr(sys, 'frozen', False)}, exe={sys.executable})")
+            return
+        small = small or big
+        window._taskbar_icons = (big, small)                # keep the handles alive
+
+        def apply(attempt):
+            try:
+                hwnd = ctypes.c_void_p(int(window.winId()))
+                user32.SendMessageW(hwnd, 0x80, ctypes.c_void_p(1), ctypes.c_void_p(big))     # WM_SETICON big
+                user32.SendMessageW(hwnd, 0x80, ctypes.c_void_p(0), ctypes.c_void_p(small))   # WM_SETICON small
+                set_class(hwnd, -14, ctypes.c_void_p(big))      # GCLP_HICON
+                set_class(hwnd, -34, ctypes.c_void_p(small))    # GCLP_HICONSM
+                log(f"icon set (attempt {attempt}, hwnd={hwnd.value}, frozen={getattr(sys, 'frozen', False)})")
+            except Exception as exc:
+                log(f"icon set failed: {exc!r}")
+
+        apply(1)
+        QTimer.singleShot(1000, lambda: apply(2))
+        QTimer.singleShot(3000, lambda: apply(3))
+    except Exception as exc:
+        log(f"icon error: {exc!r}")
+
+
 def _preload_portfolio():
     from views.portfolio_view import preload_assets
     preload_assets()           # Portfolio pictures are decoded in a thread while the login page is shown
 
 
 def main():
-    # Windows taskbar/application identity.
-    if sys.platform == "win32":
+    # Windows taskbar/application identity - only when run as "python app.py" (so the window is not grouped
+    # with python.exe). The exe does NOT set it: with an own ID and no Start-menu shortcut for that ID,
+    # Windows showed a blank taskbar icon; without it the taskbar takes the icon built into the exe.
+    if sys.platform == "win32" and not getattr(sys, "frozen", False):
         import ctypes
 
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
@@ -492,6 +574,7 @@ def main():
     app.restoreOverrideCursor()
 
     window.showMaximized()          # the application opens full screen
+    _set_taskbar_icon(window, _icon_file(base_path))   # assets/app_icon.ico if you put one there, else 13.ico
     if not all_built:
         window._start_warmup()      # a page that failed is tried again in the background
 
